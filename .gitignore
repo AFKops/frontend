@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+<<<<<<< HEAD
+=======
+
+# Chatops-ssh-api directory
+chatops-ssh-api/
+>>>>>>> ac09413 (Normalize line endings)

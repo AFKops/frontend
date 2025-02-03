@@ -16,7 +16,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _messageController = TextEditingController();
 
   /// ✅ Open SSH Connection Dialog with username, host, and password
+<<<<<<< HEAD
   void _connectToServer(BuildContext context) async {
+=======
+  void _connectToServer(BuildContext context) {
+>>>>>>> ac09413 (Normalize line endings)
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     TextEditingController sshCommandController = TextEditingController();
     String? password;
@@ -85,14 +89,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
 
+<<<<<<< HEAD
               // ✅ Start new SSH Chat and store returned chat ID
               String newChatId = await chatProvider.startNewChat(
+=======
+              // ✅ Start new SSH Chat and ensure navigation to the correct chat
+              String chatId = await chatProvider.startNewChat(
+>>>>>>> ac09413 (Normalize line endings)
                 chatName: "SSH: $username@$host",
                 host: host,
                 username: username,
                 password: password ?? "",
               );
 
+<<<<<<< HEAD
               debugPrint("🟢 Created Chat ID: $newChatId");
 
               if (newChatId.isNotEmpty) {
@@ -101,6 +111,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => ChatScreen(chatId: newChatId),
+=======
+              if (chatId.isNotEmpty) {
+                chatProvider.setCurrentChat(chatId); // ✅ Set the current chat
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChatScreen(chatId: chatId),
+>>>>>>> ac09413 (Normalize line endings)
                   ),
                 );
               } else {

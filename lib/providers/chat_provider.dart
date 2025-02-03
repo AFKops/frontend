@@ -52,10 +52,17 @@ class ChatProvider extends ChangeNotifier {
       'password': password,
       'passwordSaved': password.isNotEmpty,
       'currentDirectory': "/root",
+<<<<<<< HEAD
       'connected': true,
     };
 
     _currentChatId = newChatId; // ✅ Ensure this is correctly set
+=======
+      'connected': false, // Initially false until SSH connects
+    };
+
+    setCurrentChat(newChatId); // ✅ Set the current chat ID
+>>>>>>> ac09413 (Normalize line endings)
     notifyListeners();
     saveChatHistory();
 
@@ -66,6 +73,7 @@ class ChatProvider extends ChangeNotifier {
         password: password,
       );
 
+<<<<<<< HEAD
       _isConnected = true;
       addMessage(newChatId, "✅ Connected to $host", isUser: false);
       return newChatId; // ✅ Return the correct chat ID
@@ -76,6 +84,31 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+=======
+      _chats[newChatId]?['connected'] = true;
+      _isConnected = true;
+      addMessage(newChatId, "✅ Connected to $host", isUser: false);
+      notifyListeners();
+    } catch (e) {
+      _isConnected = false;
+      addMessage(newChatId, "❌ Failed to connect to $host", isUser: false);
+    }
+
+    return newChatId;
+  }
+
+  /// ✅ **Set the current active chat**
+  void setCurrentChat(String chatId) {
+    if (_chats.containsKey(chatId)) {
+      _currentChatId = chatId;
+      notifyListeners();
+    }
+  }
+
+  /// ✅ **Get the current chat ID**
+  String getCurrentChatId() => _currentChatId;
+
+>>>>>>> ac09413 (Normalize line endings)
   /// ✅ **Disconnect SSH Session**
   void disconnectChat(String chatId) {
     if (_chats.containsKey(chatId)) {
@@ -91,11 +124,18 @@ class ChatProvider extends ChangeNotifier {
     if (chatData == null) return;
 
     try {
+<<<<<<< HEAD
       // ✅ Reconnect using stored SSH details but request password
       await SSHService().getSSHWelcomeMessage(
         host: chatData['host'],
         username: chatData['username'],
         password: password, // ✅ Pass the password dynamically
+=======
+      await SSHService().getSSHWelcomeMessage(
+        host: chatData['host'],
+        username: chatData['username'],
+        password: password,
+>>>>>>> ac09413 (Normalize line endings)
       );
 
       _chats[chatId]?['connected'] = true;
@@ -108,6 +148,15 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+<<<<<<< HEAD
+=======
+  /// ✅ **Checks if a chat is active**
+  bool isChatActive(String chatId) {
+    return _chats.containsKey(chatId) &&
+        (_chats[chatId]?['connected'] ?? false);
+  }
+
+>>>>>>> ac09413 (Normalize line endings)
   /// ✅ **Handles running commands in the correct directory**
   Future<String> sendCommand(String chatId, String command) async {
     var chatData = _chats[chatId];
@@ -147,7 +196,11 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+<<<<<<< HEAD
   /// ✅ **Handles incremental directory changes**
+=======
+  /// ✅ **Handles `cd` commands properly**
+>>>>>>> ac09413 (Normalize line endings)
   Future<String> _handleDirectoryChange(
       Map<String, dynamic> chatData, String command, String currentDir) async {
     String targetDir = command.replaceFirst("cd ", "").trim();
@@ -220,9 +273,17 @@ class ChatProvider extends ChangeNotifier {
 
   /// ✅ **Delete a chat**
   void deleteChat(String chatId) {
+<<<<<<< HEAD
     _chats.remove(chatId);
     saveChatHistory();
     notifyListeners();
+=======
+    if (_chats.containsKey(chatId)) {
+      _chats.remove(chatId);
+      saveChatHistory();
+      notifyListeners();
+    }
+>>>>>>> ac09413 (Normalize line endings)
   }
 
   /// ✅ **Delete all chats**
@@ -248,6 +309,7 @@ class ChatProvider extends ChangeNotifier {
     }
     notifyListeners();
   }
+<<<<<<< HEAD
 
   /// ✅ **Rename a chat**
   void renameChat(String chatId, String newName) {
@@ -263,4 +325,6 @@ class ChatProvider extends ChangeNotifier {
     return _chats.containsKey(chatId) &&
         (_chats[chatId]?['connected'] ?? false);
   }
+=======
+>>>>>>> ac09413 (Normalize line endings)
 }
