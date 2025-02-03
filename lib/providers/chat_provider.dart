@@ -34,12 +34,13 @@ class ChatProvider extends ChangeNotifier {
   /// ✅ **Start a new chat & fetch SSH Welcome Message**
   Future<String> startNewChat({
     required String chatName,
-    required String host,
-    required String username,
-    required String password,
+    String host = "", // ✅ Optional for general chats
+    String username = "", // ✅ Optional for general chats
+    String password = "", // ✅ Optional for general chats
+    bool isGeneralChat = false, // ✅ New flag for general chat
   }) async {
     var uuid = const Uuid();
-    String newChatId = uuid.v4();
+    String newChatId = isGeneralChat ? "general_${uuid.v4()}" : uuid.v4();
     String timestamp = DateTime.now().toIso8601String();
 
     _chats[newChatId] = {
@@ -47,18 +48,24 @@ class ChatProvider extends ChangeNotifier {
       'messages': [],
       'timestamp': timestamp,
       'lastActive': timestamp,
-      'host': host,
-      'username': username,
-      'password': password,
-      'passwordSaved': password.isNotEmpty,
-      'currentDirectory': "/root",
-      'connected': false, // Initially false until SSH connects
+      'host': isGeneralChat ? "" : host, // ✅ Only set if SSH chat
+      'username': isGeneralChat ? "" : username, // ✅ Only set if SSH chat
+      'password': isGeneralChat ? "" : password, // ✅ Only set if SSH chat
+      'passwordSaved':
+          password.isNotEmpty && !isGeneralChat, // ✅ Passwords only for SSH
+      'currentDirectory':
+          isGeneralChat ? "" : "/root", // ✅ No directory for general chat
+      'connected': isGeneralChat, // ✅ General chats are always "connected"
     };
 
-    setCurrentChat(newChatId); // ✅ Set the current chat ID
+    setCurrentChat(newChatId); // ✅ Set current chat
     notifyListeners();
     saveChatHistory();
 
+    // ✅ If it's a general chat, return immediately
+    if (isGeneralChat) return newChatId;
+
+    // ✅ Otherwise, attempt SSH connection
     try {
       String welcomeMessage = await SSHService().getSSHWelcomeMessage(
         host: host,

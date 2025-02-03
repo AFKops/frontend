@@ -1,4 +1,4 @@
-# chatops
+# AFKOps
 
 A new Flutter project.
 

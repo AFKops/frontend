@@ -19,7 +19,33 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _chatMessageController = TextEditingController();
   bool _obscurePassword = true;
   bool _isConnecting = false;
-  bool _savePassword = false; // ✅ Checkbox state for saving password
+  bool _savePassword = false; // ✅ Checkbox for saving passwords
+
+  /// ✅ **General Chat (No SSH)**
+  void _startGeneralChat(BuildContext context) async {
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    String message = _chatMessageController.text.trim();
+
+    if (message.isEmpty) return;
+
+    String chatId = await chatProvider.startNewChat(
+      chatName: "General Chat - ${DateTime.now().toLocal()}",
+      host: "", // ✅ No SSH details
+      username: "",
+      password: "",
+      isGeneralChat: true, // ✅ Mark it as a general chat
+    );
+
+    _chatMessageController.clear();
+
+    if (mounted) {
+      chatProvider.setCurrentChat(chatId);
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
+      );
+    }
+  }
 
   /// ✅ **Connect to SSH and retry if it fails**
   void _connectToServer(BuildContext context) async {
@@ -27,11 +53,8 @@ class _HomeScreenState extends State<HomeScreen> {
     String chatName = _chatNameController.text.trim();
     String sshCommand = _sshCommandController.text.trim();
     String password = _passwordController.text.trim();
-    String passwordToUse = _savePassword
-        ? password
-        : password.isNotEmpty
-            ? password
-            : "";
+    String passwordToUse =
+        _savePassword ? password : (password.isNotEmpty ? password : "");
 
     if (chatName.isEmpty || sshCommand.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
       host: host,
       username: username,
       password: password,
+      isGeneralChat: false, // ✅ Mark as SSH chat
     );
 
     // ✅ **Only Retry If Chat Is Not Active**
@@ -104,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
         host: host,
         username: username,
         password: password,
+        isGeneralChat: false, // ✅ Mark as SSH chat
       );
 
       // ✅ **Only return retryChatId if it actually succeeded**
@@ -153,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-        title: const Text("ChatOps"),
+        title: const Text("AFKOps"),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -179,8 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 15.0),
             child: Column(
               children: [
-                _buildTextField(_chatNameController, "Chat Name",
-                    false), // ✅ Added Chat Name
+                _buildTextField(_chatNameController, "Chat Name", false),
                 const SizedBox(height: 10),
                 _buildTextField(_sshCommandController,
                     "SSH Command (e.g., ssh root@IP)", false),
@@ -210,8 +234,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         : ElevatedButton(
                             onPressed: () => _connectToServer(context),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black, // ✅ Black button
-                              foregroundColor: Colors.white, // ✅ White text
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 40, vertical: 12),
                               shape: RoundedRectangleBorder(
@@ -226,13 +250,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const Spacer(),
-          _chatInputBox(), // ✅ Chat box restored at bottom
+          _chatInputBox(),
         ],
       ),
     );
   }
 
-  /// ✅ **Chat Input Box (Same as ChatScreen)**
+  /// ✅ **Chat Box Now Creates General Chat**
   Widget _chatInputBox() {
     return Padding(
       padding: const EdgeInsets.all(10.0),
@@ -242,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: TextField(
               controller: _chatMessageController,
               decoration: const InputDecoration(
-                hintText: "Message...",
+                hintText: "Start a chat...",
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(25.0)),
                 ),
@@ -253,8 +277,31 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.send, color: Colors.black),
-            onPressed: () {
-              // Placeholder action for chat input
+            onPressed: () async {
+              String message = _chatMessageController.text.trim();
+              if (message.isEmpty) return;
+
+              _chatMessageController.clear();
+
+              final chatProvider =
+                  Provider.of<ChatProvider>(context, listen: false);
+
+              // ✅ Start a new General Chat
+              String chatId = await chatProvider.startNewChat(
+                chatName: "General Chat",
+                isGeneralChat: true, // ✅ Mark as general chat
+              );
+
+              chatProvider.setCurrentChat(chatId);
+              chatProvider.addMessage(chatId, message, isUser: true);
+
+              if (mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => ChatScreen(chatId: chatId)),
+                );
+              }
             },
           ),
         ],

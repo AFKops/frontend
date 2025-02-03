@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "chatops" "\0"
+            VALUE "FileDescription", "AFKOps" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "chatops" "\0"
+            VALUE "InternalName", "AFKOps" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "chatops.exe" "\0"
-            VALUE "ProductName", "chatops" "\0"
+            VALUE "OriginalFilename", "AFKOps.exe" "\0"
+            VALUE "ProductName", "AFKOps" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
