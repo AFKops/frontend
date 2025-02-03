@@ -13,21 +13,30 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final TextEditingController _chatNameController = TextEditingController();
   final TextEditingController _sshCommandController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _chatMessageController = TextEditingController();
   bool _obscurePassword = true;
   bool _isConnecting = false;
+  bool _savePassword = false; // ✅ Checkbox state for saving password
 
-  /// ✅ **Connect to SSH and retry once if it fails**
+  /// ✅ **Connect to SSH and retry if it fails**
   void _connectToServer(BuildContext context) async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    String chatName = _chatNameController.text.trim();
     String sshCommand = _sshCommandController.text.trim();
     String password = _passwordController.text.trim();
+    String passwordToUse = _savePassword
+        ? password
+        : password.isNotEmpty
+            ? password
+            : "";
 
-    if (sshCommand.isEmpty || password.isEmpty) {
+    if (chatName.isEmpty || sshCommand.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❌ Please fill all fields.")),
+        const SnackBar(
+            content: Text("❌ Chat Name and SSH Command are required.")),
       );
       return;
     }
@@ -56,15 +65,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isConnecting = true); // ✅ Show loading indicator
 
-    String chatId =
-        await _attemptConnection(chatProvider, host, username, password);
+    String chatId = await _attemptConnection(
+        chatProvider, chatName, host, username, passwordToUse);
 
     setState(() => _isConnecting = false); // ✅ Hide loading indicator
 
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
       chatProvider.setCurrentChat(chatId);
       if (mounted) {
-        Navigator.pushReplacement(
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
         );
@@ -77,10 +86,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// ✅ **Attempts SSH Connection & Only Retries If It Fails**
-  Future<String> _attemptConnection(ChatProvider chatProvider, String host,
-      String username, String password) async {
+  Future<String> _attemptConnection(ChatProvider chatProvider, String chatName,
+      String host, String username, String password) async {
     String chatId = await chatProvider.startNewChat(
-      chatName: "SSH: $username@$host",
+      chatName: chatName,
       host: host,
       username: username,
       password: password,
@@ -91,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.delayed(
           const Duration(seconds: 1)); // ✅ Short delay before retrying
       String retryChatId = await chatProvider.startNewChat(
-        chatName: "SSH: $username@$host",
+        chatName: chatName,
         host: host,
         username: username,
         password: password,
@@ -170,6 +179,9 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 15.0),
             child: Column(
               children: [
+                _buildTextField(_chatNameController, "Chat Name",
+                    false), // ✅ Added Chat Name
+                const SizedBox(height: 10),
                 _buildTextField(_sshCommandController,
                     "SSH Command (e.g., ssh root@IP)", false),
                 const SizedBox(height: 10),
@@ -177,21 +189,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     _passwordController, "Password", _obscurePassword,
                     isPassword: true),
                 const SizedBox(height: 10),
-                _isConnecting
-                    ? const CircularProgressIndicator()
-                    : ElevatedButton(
-                        onPressed: () => _connectToServer(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black, // ✅ Black button
-                          foregroundColor: Colors.white, // ✅ White text
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 40, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _savePassword,
+                          onChanged: (value) {
+                            setState(() {
+                              _savePassword = value ?? false;
+                            });
+                          },
                         ),
-                        child: const Text("Connect"),
-                      ),
+                        const Text("Save Password"),
+                      ],
+                    ),
+                    _isConnecting
+                        ? const CircularProgressIndicator()
+                        : ElevatedButton(
+                            onPressed: () => _connectToServer(context),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black, // ✅ Black button
+                              foregroundColor: Colors.white, // ✅ White text
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 40, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text("Connect"),
+                          ),
+                  ],
+                ),
               ],
             ),
           ),
