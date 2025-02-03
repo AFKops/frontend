@@ -72,4 +72,41 @@ class SSHService {
       return "❌ SSH API Connection Failed: $e";
     }
   }
+
+  /// ✅ **NEW: List Files in a Directory**
+  Future<List<String>> listFiles({
+    required String host,
+    required String username,
+    required String password,
+    String directory = ".",
+  }) async {
+    try {
+      print("📂 Fetching file list from directory: $directory");
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "host": host,
+          "username": username,
+          "password": password,
+          "command": "ls -p $directory", // ✅ "-p" appends "/" to directories
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String output = data["output"] ?? "";
+        List<String> files = output.trim().split("\n");
+
+        print("📂 Found files: $files");
+        return files;
+      } else {
+        print("❌ SSH API Error: ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("🔴 Error fetching files: $e");
+      return [];
+    }
+  }
 }

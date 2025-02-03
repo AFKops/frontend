@@ -10,6 +10,30 @@ class ChatProvider extends ChangeNotifier {
   String _currentChatId = "";
   bool _isConnected = false;
 
+  /// ✅ Checks if the user can go back one directory
+  /// ✅ Checks if the user can go back one directory
+  bool canGoBack(String chatId) {
+    if (!chats.containsKey(chatId)) return false; // ✅ Prevents errors
+
+    String currentPath = chats[chatId]?['currentDirectory'] ?? "/";
+    return currentPath != "/"; // ✅ Can go back if not root
+  }
+
+  /// ✅ Moves up one directory level
+  void goBackDirectory(String chatId) {
+    if (!canGoBack(chatId)) return; // ✅ Prevent errors if at root
+
+    if (chats[chatId] == null) return; // ✅ Prevent null access
+
+    String currentPath = chats[chatId]?['currentPath'] ?? "";
+    String parentPath = currentPath.contains('/')
+        ? currentPath.substring(0, currentPath.lastIndexOf('/'))
+        : "/";
+
+    chats[chatId]?['currentPath'] = parentPath; // ✅ Safely update the path
+    notifyListeners(); // ✅ Updates UI
+  }
+
   Map<String, Map<String, dynamic>> get chats => _chats;
 
   List<Map<String, dynamic>> getMessages(String chatId) =>
@@ -131,6 +155,28 @@ class ChatProvider extends ChangeNotifier {
   bool isChatActive(String chatId) {
     return _chats.containsKey(chatId) &&
         (_chats[chatId]?['connected'] ?? false);
+  }
+
+  /// ✅ **Fetch File Suggestions from Current Directory**
+  Future<void> updateFileSuggestions(String chatId) async {
+    var chatData = _chats[chatId];
+
+    // ✅ Ensure chatData exists and chat is connected
+    if (chatData == null || !(chatData['connected'] ?? false)) return;
+
+    String currentDir = chatData['currentDirectory'] ?? ".";
+
+    // ✅ Fetch file list using SSH
+    List<String> files = await SSHService().listFiles(
+      host: chatData['host'] ?? "",
+      username: chatData['username'] ?? "",
+      password: chatData['password'] ?? "",
+      directory: currentDir,
+    );
+
+    // ✅ Ensure "fileSuggestions" is initialized
+    _chats[chatId]?['fileSuggestions'] = files;
+    notifyListeners();
   }
 
   /// ✅ **Handles running commands in the correct directory**

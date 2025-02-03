@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
+import 'package:flutter/services.dart';
 import 'home_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -13,10 +14,14 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final GlobalKey _directoryButtonKey = GlobalKey();
+  List<String> _filteredSuggestions = []; // Stores filtered directory names
+  bool _showTagPopup = false; // Controls tag pop-up visibility
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
   bool _isAtBottom = true;
+  List<String> _fileSuggestions = []; // Stores the suggested files
 
   @override
   void initState() {
@@ -24,8 +29,42 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-    _messageController.addListener(() {
-      if (_messageController.text.isNotEmpty) _scrollToBottom();
+    _messageController.addListener(() async {
+      String input = _messageController.text.trim();
+
+      if (input.startsWith("cd ") && input.length > 3) {
+        String query = input.substring(3);
+
+        // ✅ Auto-fetch only if _fileSuggestions is empty (prevents duplicate popups)
+        if (_fileSuggestions.isEmpty) {
+          await Provider.of<ChatProvider>(context, listen: false)
+              .updateFileSuggestions(widget.chatId);
+
+          setState(() {
+            _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
+                    .chats[widget.chatId]?['fileSuggestions'] ??
+                [];
+          });
+        }
+
+        List<String> matches = _fileSuggestions
+            .where((file) => file.startsWith(query))
+            .toSet() // ✅ Ensures uniqueness
+            .toList();
+
+        setState(() {
+          // ✅ Update suggestions only if different from the current state
+          if (_filteredSuggestions != matches) {
+            _filteredSuggestions = matches;
+            _showTagPopup = _filteredSuggestions.isNotEmpty;
+          }
+        });
+      } else {
+        setState(() {
+          _filteredSuggestions.clear();
+          _showTagPopup = false;
+        });
+      }
     });
   }
 
@@ -75,6 +114,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       String response = await chatProvider.sendCommand(widget.chatId, message);
+
+      // ✅ If "cd" command, auto-fetch directory contents
+      if (message.startsWith("cd ")) {
+        await chatProvider.updateFileSuggestions(widget.chatId);
+        setState(() {
+          _fileSuggestions =
+              chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
+        });
+      }
+
       _stopTypingIndicator();
       chatProvider.addMessage(widget.chatId, response, isUser: false);
       _scrollToBottom();
@@ -82,6 +131,74 @@ class _ChatScreenState extends State<ChatScreen> {
       _stopTypingIndicator();
       chatProvider.addMessage(widget.chatId, "❌ SSH Error: $e", isUser: false);
     }
+  }
+
+  /// **Displays a Popup with Directory Contents**
+  void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
+    await Provider.of<ChatProvider>(context, listen: false)
+        .updateFileSuggestions(widget.chatId); // ✅ Fetch directory
+
+    setState(() {
+      _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
+              .chats[widget.chatId]?['fileSuggestions'] ??
+          [];
+    });
+
+    final RenderBox renderBox =
+        key.currentContext!.findRenderObject() as RenderBox;
+    final Offset position = renderBox.localToGlobal(Offset.zero);
+
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx, // ✅ Align under the directory button
+        position.dy + renderBox.size.height + 5, // ✅ Place it right below
+        position.dx + 150, // ✅ Fixed width for dropdown
+        position.dy + renderBox.size.height + 200, // ✅ Adjust dropdown height
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12), // ✅ Keep rounded design
+      ),
+      items: [
+        if (Provider.of<ChatProvider>(context, listen: false)
+            .canGoBack(widget.chatId))
+          PopupMenuItem(
+            onTap: () => Provider.of<ChatProvider>(context, listen: false)
+                .goBackDirectory(widget.chatId),
+            child: Row(
+              children: [
+                const Icon(Icons.arrow_back, size: 16, color: Colors.black54),
+                const SizedBox(width: 5),
+                const Text(
+                  "Go Back",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: "monospace",
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ..._fileSuggestions.map((dir) {
+          return PopupMenuItem(
+            onTap: () {
+              setState(() {
+                _messageController.text = "cd $dir";
+              });
+            },
+            child: Text(
+              dir,
+              style: const TextStyle(
+                fontSize: 14,
+                fontFamily: "monospace",
+                color: Colors.black87,
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
   }
 
   @override
@@ -96,18 +213,20 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Text(chatName, style: const TextStyle(fontSize: 18)),
         actions: [
           IconButton(
-            icon: Icon(
-              isConnected ? Icons.check_circle : Icons.cancel,
-              color: isConnected ? Colors.green : Colors.grey,
-            ),
+            icon: Icon(isConnected ? Icons.check_circle : Icons.cancel,
+                color: isConnected ? Colors.green : Colors.grey),
             onPressed: () {},
           ),
           IconButton(
+            key: _directoryButtonKey, // ✅ Assign the key
+            icon: const Icon(Icons.folder_open),
+            onPressed: () =>
+                _showDirectoryDropdown(context, _directoryButtonKey),
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const HomeScreen()),
-            ),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (context) => const HomeScreen())),
           ),
         ],
       ),
@@ -125,10 +244,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (_isTyping && index == messages.length) {
                       return const _TypingIndicator();
                     }
-
                     final message = messages[index];
                     final bool isUserMessage = message['isUser'] ?? false;
-
                     return Align(
                       alignment: isUserMessage
                           ? Alignment.centerRight
@@ -142,6 +259,10 @@ class _ChatScreenState extends State<ChatScreen> {
               _chatInputBox(),
             ],
           ),
+
+          // ✅ Auto-suggestion Popup (ONLY SHOW WHEN THERE ARE SUGGESTIONS)
+          if (_filteredSuggestions.isNotEmpty) _tagPopup(),
+
           if (!_isAtBottom)
             Positioned(
               right: 10,
@@ -159,71 +280,141 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// ✅ **Formats messages to look like Bash output**
-  Widget _buildMessageBubble(String text, bool isUserMessage) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isUserMessage
-            ? Colors.grey[300]
-            : const Color(0xFFF0F0F0), // ✅ Correct ARGB format
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: isUserMessage
-          ? Text(
-              text,
-              style: const TextStyle(fontSize: 16, color: Colors.black),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Bash",
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey, // ✅ Light grey text
+  Widget _chatInputBox() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(10.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  onChanged: (text) =>
+                      {}, // ✅ No inline auto-fill, just trigger pop-up
+                  decoration: const InputDecoration(
+                    hintText: "Message...",
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(25.0)),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 14, // ✅ Reduced font size for SSH output
-                    fontFamily: "monospace",
-                    color: Color.fromARGB(255, 66, 66,
-                        66), // ✅ Slightly darker grey text for contrast
-                  ),
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.send, color: Colors.black),
+                onPressed: _sendMessage,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _chatInputBox() {
-    return Padding(
-      padding: const EdgeInsets.all(10.0),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              decoration: const InputDecoration(
-                hintText: "Message...",
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(25.0)),
-                ),
-                filled: true,
-                fillColor: Colors.white,
-              ),
+  Widget _tagPopup() {
+    if (_filteredSuggestions.isEmpty)
+      return const SizedBox.shrink(); // Hide if empty
+
+    return Positioned(
+      left: 15, // Align to left
+      bottom: 75, // Position above the input
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: 6, vertical: 3), // ✅ More compact padding
+          decoration: BoxDecoration(
+            color: Colors.grey[50], // ✅ Softer background
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 3)],
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _filteredSuggestions.map((dir) {
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _messageController.text = "cd $dir"; // Auto-fill
+                      _filteredSuggestions.clear();
+                      _showTagPopup = false;
+                    });
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5), // ✅ Compact spacing
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100], // ✅ Light background
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      dir,
+                      style: const TextStyle(
+                        fontSize: 12, // ✅ Smaller font
+                        fontFamily: 'monospace', // ✅ Monospace font
+                        fontWeight: FontWeight.w300, // ✅ Lighter font weight
+                        color: Colors.black87, // ✅ Darker text for contrast
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.send, color: Colors.black),
-            onPressed: _sendMessage,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(String text, bool isUserMessage) {
+    return GestureDetector(
+      onLongPress: () {
+        Clipboard.setData(ClipboardData(text: text)); // ✅ Copy to clipboard
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Copied to clipboard'),
+            duration: Duration(seconds: 1),
           ),
-        ],
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isUserMessage ? Colors.grey[300] : const Color(0xFFF0F0F0),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: isUserMessage
+            ? SelectableText(
+                text,
+                style: const TextStyle(fontSize: 16, color: Colors.black),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Bash",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  SelectableText(
+                    text,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontFamily: "monospace",
+                      color: Color.fromARGB(255, 66, 66, 66),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
