@@ -45,7 +45,7 @@ class SSHService {
   Future<String> executeCommand({
     required String host,
     required String username,
-    required String password,
+    required String password, // ✅ Ensure password is always sent
     required String command,
   }) async {
     try {
@@ -55,7 +55,9 @@ class SSHService {
         body: jsonEncode({
           "host": host,
           "username": username,
-          "password": password,
+          "password": password.isNotEmpty
+              ? password
+              : "default_placeholder", // ✅ Always send a password
           "command": command,
         }),
       );

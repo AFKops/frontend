@@ -14,11 +14,9 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final TextEditingController _renameController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
   bool _isAtBottom = true;
-  bool _isRenaming = false;
 
   @override
   void initState() {
@@ -26,7 +24,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-    // ✅ Auto scroll when user types in the text box
     _messageController.addListener(() {
       if (_messageController.text.isNotEmpty) _scrollToBottom();
     });
@@ -46,8 +43,7 @@ class _ChatScreenState extends State<ChatScreen> {
     Future.delayed(const Duration(milliseconds: 50), () {
       if (mounted && _scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent +
-              50, // Added extra space for animation
+          _scrollController.position.maxScrollExtent + 50,
           duration: immediate
               ? const Duration(milliseconds: 200)
               : const Duration(milliseconds: 500),
@@ -65,78 +61,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void _stopTypingIndicator() {
     if (!mounted) return;
     setState(() => _isTyping = false);
-  }
-
-  /// ✅ **Handles SSH Connection Toggle**
-  void _toggleConnection() {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    bool isConnected = chatProvider.isChatActive(widget.chatId);
-
-    if (isConnected) {
-      _showDisconnectConfirmation();
-    } else {
-      _showPasswordPrompt();
-    }
-  }
-
-  /// ✅ **Show confirmation before disconnecting**
-  void _showDisconnectConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Disconnect Server"),
-        content: const Text("Are you sure you want to disconnect?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              final chatProvider =
-                  Provider.of<ChatProvider>(context, listen: false);
-              chatProvider.disconnectChat(widget.chatId);
-              Navigator.pop(context);
-            },
-            child: const Text("Disconnect"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// ✅ **Ask for password before reconnecting**
-  void _showPasswordPrompt() {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    TextEditingController passwordController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Reconnect to Server"),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: "Enter SSH Password"),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              String password = passwordController.text.trim();
-              if (password.isNotEmpty) {
-                chatProvider.reconnectChat(widget.chatId, password);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text("Connect"),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _sendMessage() async {
@@ -176,7 +100,7 @@ class _ChatScreenState extends State<ChatScreen> {
               isConnected ? Icons.check_circle : Icons.cancel,
               color: isConnected ? Colors.green : Colors.grey,
             ),
-            onPressed: _toggleConnection,
+            onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.add),
@@ -209,23 +133,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       alignment: isUserMessage
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 5),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color:
-                              isUserMessage ? Colors.grey[300] : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          message['text'],
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black,
-                            fontFamily: isUserMessage ? null : "monospace",
-                          ),
-                        ),
-                      ),
+                      child:
+                          _buildMessageBubble(message['text'], isUserMessage),
                     );
                   },
                 ),
@@ -233,15 +142,13 @@ class _ChatScreenState extends State<ChatScreen> {
               _chatInputBox(),
             ],
           ),
-          // ✅ Scroll-Down Button (Now inside Stack properly)
           if (!_isAtBottom)
             Positioned(
-              right: 10, // ✅ Moved more to the right
-              bottom: 75, // ✅ Adjusted placement
+              right: 10,
+              bottom: 75,
               child: FloatingActionButton.small(
-                backgroundColor:
-                    Colors.black.withOpacity(0.7), // ✅ Semi-transparent
-                elevation: 2, // ✅ Slight shadow
+                backgroundColor: Colors.black.withOpacity(0.7),
+                elevation: 2,
                 onPressed: _scrollToBottom,
                 child:
                     const Icon(Icons.keyboard_arrow_down, color: Colors.white),
@@ -249,6 +156,48 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  /// ✅ **Formats messages to look like Bash output**
+  Widget _buildMessageBubble(String text, bool isUserMessage) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isUserMessage
+            ? Colors.grey[300]
+            : const Color(0xFFF0F0F0), // ✅ Correct ARGB format
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: isUserMessage
+          ? Text(
+              text,
+              style: const TextStyle(fontSize: 16, color: Colors.black),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Bash",
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey, // ✅ Light grey text
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 14, // ✅ Reduced font size for SSH output
+                    fontFamily: "monospace",
+                    color: Color.fromARGB(255, 66, 66,
+                        66), // ✅ Slightly darker grey text for contrast
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
