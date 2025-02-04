@@ -158,25 +158,42 @@ class ChatProvider extends ChangeNotifier {
   }
 
   /// ✅ **Fetch File Suggestions from Current Directory**
-  Future<void> updateFileSuggestions(String chatId) async {
+  /// ✅ **Fetch File Suggestions Dynamically for Deeper Levels**
+  Future<void> updateFileSuggestions(String chatId, {String? query}) async {
     var chatData = _chats[chatId];
-
-    // ✅ Ensure chatData exists and chat is connected
     if (chatData == null || !(chatData['connected'] ?? false)) return;
 
     String currentDir = chatData['currentDirectory'] ?? ".";
+    String directoryToQuery = currentDir;
 
-    // ✅ Fetch file list using SSH
-    List<String> files = await SSHService().listFiles(
-      host: chatData['host'] ?? "",
-      username: chatData['username'] ?? "",
-      password: chatData['password'] ?? "",
-      directory: currentDir,
-    );
+    // ✅ If user is typing, determine whether to query current or deeper directories
+    if (query != null && query.isNotEmpty) {
+      List<String> pathParts = query.split("/");
 
-    // ✅ Ensure "fileSuggestions" is initialized
-    _chats[chatId]?['fileSuggestions'] = files;
-    notifyListeners();
+      if (pathParts.length == 1) {
+        // ✅ Fetch first-level directories from the current directory
+        directoryToQuery = currentDir;
+      } else {
+        // ✅ Fetch deeper directories
+        String partialPath =
+            pathParts.sublist(0, pathParts.length - 1).join("/");
+        directoryToQuery = "$currentDir/$partialPath";
+      }
+    }
+
+    try {
+      List<String> files = await SSHService().listFiles(
+        host: chatData['host'] ?? "",
+        username: chatData['username'] ?? "",
+        password: chatData['password'] ?? "",
+        directory: directoryToQuery,
+      );
+
+      _chats[chatId]?['fileSuggestions'] = files;
+      notifyListeners();
+    } catch (e) {
+      debugPrint("❌ Error fetching directory: $e");
+    }
   }
 
   /// ✅ **Handles running commands in the correct directory**

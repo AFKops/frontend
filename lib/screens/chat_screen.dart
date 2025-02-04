@@ -32,33 +32,41 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.addListener(() async {
       String input = _messageController.text.trim();
 
-      if (input.startsWith("cd ") && input.length > 3) {
-        String query = input.substring(3);
+      if (input.startsWith("cd ")) {
+        String query = input.substring(3).trim();
 
-        // ✅ Auto-fetch only if _fileSuggestions is empty (prevents duplicate popups)
-        if (_fileSuggestions.isEmpty) {
+        if (query.isNotEmpty) {
           await Provider.of<ChatProvider>(context, listen: false)
-              .updateFileSuggestions(widget.chatId);
+              .updateFileSuggestions(widget.chatId, query: query);
 
           setState(() {
             _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
                     .chats[widget.chatId]?['fileSuggestions'] ??
                 [];
           });
-        }
 
-        List<String> matches = _fileSuggestions
-            .where((file) => file.startsWith(query))
-            .toSet() // ✅ Ensures uniqueness
-            .toList();
+          // ✅ If user hasn't typed "/", filter from current directory
+          if (!query.contains("/")) {
+            List<String> matches = _fileSuggestions
+                .where((file) => file.startsWith(query))
+                .toList();
 
-        setState(() {
-          // ✅ Update suggestions only if different from the current state
-          if (_filteredSuggestions != matches) {
-            _filteredSuggestions = matches;
-            _showTagPopup = _filteredSuggestions.isNotEmpty;
+            setState(() {
+              _filteredSuggestions = matches;
+              _showTagPopup = _filteredSuggestions.isNotEmpty;
+            });
+          } else {
+            // ✅ If user has typed "/", filter from deeper directory
+            List<String> matches = _fileSuggestions
+                .where((file) => file.startsWith(query.split("/").last))
+                .toList();
+
+            setState(() {
+              _filteredSuggestions = matches;
+              _showTagPopup = _filteredSuggestions.isNotEmpty;
+            });
           }
-        });
+        }
       } else {
         setState(() {
           _filteredSuggestions.clear();
@@ -355,9 +363,30 @@ class _ChatScreenState extends State<ChatScreen> {
                 return GestureDetector(
                   onTap: () {
                     setState(() {
-                      _messageController.text = "cd $dir"; // Auto-fill
+                      String selectedDir =
+                          dir; // ✅ Reference the tapped directory
+                      String currentText = _messageController.text.trim();
+
+                      if (currentText.startsWith("cd ")) {
+                        List<String> parts = currentText.split(" ");
+
+                        if (parts.length > 1) {
+                          List<String> pathParts = parts[1].split("/");
+                          pathParts
+                              .removeLast(); // ✅ Remove the incomplete directory
+                          pathParts
+                              .add(selectedDir); // ✅ Add full directory name
+                          _messageController.text = "cd " + pathParts.join("/");
+                        } else {
+                          _messageController.text = "cd $selectedDir";
+                        }
+                      } else {
+                        _messageController.text = "cd $selectedDir";
+                      }
+
                       _filteredSuggestions.clear();
-                      _showTagPopup = false;
+                      _showTagPopup =
+                          false; // ✅ Hide pop-up after selecting a directory
                     });
                   },
                   child: Container(
