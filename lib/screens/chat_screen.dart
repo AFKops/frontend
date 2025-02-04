@@ -136,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// **Displays a Popup with Directory Contents**
   void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
     await Provider.of<ChatProvider>(context, listen: false)
-        .updateFileSuggestions(widget.chatId); // ✅ Fetch directory
+        .updateFileSuggestions(widget.chatId);
 
     setState(() {
       _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
@@ -151,20 +151,26 @@ class _ChatScreenState extends State<ChatScreen> {
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(
-        position.dx, // ✅ Align under the directory button
-        position.dy + renderBox.size.height + 5, // ✅ Place it right below
-        position.dx + 150, // ✅ Fixed width for dropdown
-        position.dy + renderBox.size.height + 200, // ✅ Adjust dropdown height
+        position.dx,
+        position.dy + renderBox.size.height + 5,
+        position.dx + 150,
+        position.dy + renderBox.size.height + 200,
       ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12), // ✅ Keep rounded design
+        borderRadius: BorderRadius.circular(12),
       ),
       items: [
         if (Provider.of<ChatProvider>(context, listen: false)
             .canGoBack(widget.chatId))
           PopupMenuItem(
-            onTap: () => Provider.of<ChatProvider>(context, listen: false)
-                .goBackDirectory(widget.chatId),
+            onTap: () {
+              Provider.of<ChatProvider>(context, listen: false)
+                  .goBackDirectory(widget.chatId);
+              setState(() {
+                _messageController.text = "cd ..";
+              });
+              _sendMessage();
+            },
             child: Row(
               children: [
                 const Icon(Icons.arrow_back, size: 16, color: Colors.black54),
@@ -281,35 +287,47 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _chatInputBox() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  onChanged: (text) =>
-                      {}, // ✅ No inline auto-fill, just trigger pop-up
-                  decoration: const InputDecoration(
-                    hintText: "Message...",
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(25.0)),
-                    ),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
+    return Padding(
+      padding: const EdgeInsets.all(10.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              autocorrect: false, // ✅ Disable auto-correct
+              decoration: InputDecoration(
+                hintText: "Type a command...",
+                hintStyle: const TextStyle(color: Colors.black54),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25.0),
+                  borderSide: const BorderSide(color: Colors.grey),
                 ),
+                filled: true,
+                fillColor: Colors.white,
+                prefixIcon: Provider.of<ChatProvider>(context, listen: true)
+                        .canGoBack(widget.chatId)
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.black),
+                        onPressed: () {
+                          Provider.of<ChatProvider>(context, listen: false)
+                              .goBackDirectory(widget.chatId);
+                          setState(() {
+                            _messageController.text = "cd ..";
+                          });
+                          _sendMessage();
+                        },
+                      )
+                    : null, // ✅ Only show when needed
               ),
-              IconButton(
-                icon: const Icon(Icons.send, color: Colors.black),
-                onPressed: _sendMessage,
-              ),
-            ],
+              style: const TextStyle(color: Colors.black),
+            ),
           ),
-        ),
-      ],
+          IconButton(
+            icon: const Icon(Icons.send, color: Colors.black),
+            onPressed: _sendMessage,
+          ),
+        ],
+      ),
     );
   }
 
