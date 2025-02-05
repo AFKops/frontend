@@ -87,13 +87,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom({bool immediate = false}) {
-    Future.delayed(const Duration(milliseconds: 50), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent + 50,
+          _scrollController.position.maxScrollExtent,
           duration: immediate
-              ? const Duration(milliseconds: 200)
-              : const Duration(milliseconds: 500),
+              ? const Duration(
+                  milliseconds: 100) // ✅ Fast scroll for sent messages
+              : const Duration(
+                  milliseconds: 300), // ✅ Smooth scroll for responses
           curve: Curves.easeOut,
         );
       }
@@ -119,25 +121,33 @@ class _ChatScreenState extends State<ChatScreen> {
 
     chatProvider.addMessage(widget.chatId, message, isUser: true);
     _startTypingIndicator();
+    _scrollToBottom(immediate: true); // ✅ Fast scroll when sending a message
 
     try {
       String response = await chatProvider.sendCommand(widget.chatId, message);
 
-      // ✅ If "cd" command, auto-fetch directory contents
-      if (message.startsWith("cd ")) {
-        await chatProvider.updateFileSuggestions(widget.chatId);
-        setState(() {
+      setState(() {
+        // ✅ If "cd" command, update suggestions; otherwise, clear popup
+        if (message.startsWith("cd ")) {
+          chatProvider.updateFileSuggestions(widget.chatId);
           _fileSuggestions =
               chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
-        });
-      }
+        } else {
+          _filteredSuggestions.clear(); // ✅ Hide popup for non-cd commands
+          _showTagPopup = false;
+        }
+      });
 
       _stopTypingIndicator();
       chatProvider.addMessage(widget.chatId, response, isUser: false);
-      _scrollToBottom();
+
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _scrollToBottom(); // ✅ Smooth scroll when response arrives
+      });
     } catch (e) {
       _stopTypingIndicator();
       chatProvider.addMessage(widget.chatId, "❌ SSH Error: $e", isUser: false);
+      _scrollToBottom();
     }
   }
 
