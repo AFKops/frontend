@@ -46,7 +46,7 @@ final ThemeData darkTheme = ThemeData(
   brightness: Brightness.dark,
   scaffoldBackgroundColor: const Color(0xFF0D0D0D), // ✅ Soft Black
   appBarTheme: const AppBarTheme(
-    backgroundColor: Color(0xFF0D0D0D), // ✅ Soft Black for AppBar
+    backgroundColor: Color(0xFF0D0D0D),
     iconTheme: IconThemeData(color: Colors.white),
   ),
   textTheme: const TextTheme(
@@ -56,17 +56,17 @@ final ThemeData darkTheme = ThemeData(
     filled: true,
     fillColor: Colors.transparent,
     border: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.white54), // ✅ White outline
+      borderSide: BorderSide(color: Colors.white24), // ✅ Subtle White Border
     ),
     enabledBorder: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.white38), // ✅ Subtle white outline
+      borderSide: BorderSide(color: Colors.white38),
     ),
     focusedBorder: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.white), // ✅ More visible on focus
+      borderSide: BorderSide(color: Colors.white),
     ),
   ),
   buttonTheme: const ButtonThemeData(
-    buttonColor: Colors.white, // ✅ White Buttons
+    buttonColor: Colors.white,
     textTheme: ButtonTextTheme.primary,
   ),
 );
@@ -86,17 +86,17 @@ final ThemeData lightTheme = ThemeData(
     filled: true,
     fillColor: Colors.white,
     border: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.black12), // ✅ Subtle black outline
+      borderSide: BorderSide(color: Colors.black12),
     ),
     enabledBorder: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.black26), // ✅ Soft outline
+      borderSide: BorderSide(color: Colors.black26),
     ),
     focusedBorder: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.black), // ✅ Darker on focus
+      borderSide: BorderSide(color: Colors.black),
     ),
   ),
   buttonTheme: const ButtonThemeData(
-    buttonColor: Colors.black, // ✅ Black Buttons for Light Mode
+    buttonColor: Colors.black,
     textTheme: ButtonTextTheme.primary,
   ),
 );

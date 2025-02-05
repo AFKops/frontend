@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
 import 'package:flutter/services.dart';
 import 'home_screen.dart';
+import '../providers/theme_provider.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -227,14 +228,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
     final chatProvider = Provider.of<ChatProvider>(context);
     final messages = chatProvider.getMessages(widget.chatId);
     final chatName = chatProvider.getChatName(widget.chatId);
     final isConnected = chatProvider.isChatActive(widget.chatId);
 
     return Scaffold(
+      backgroundColor: isDarkMode
+          ? const Color(0xFF0D0D0D)
+          : Colors.white, // ✅ Dynamic Background
       appBar: AppBar(
         title: Text(chatName, style: const TextStyle(fontSize: 18)),
+        backgroundColor: isDarkMode
+            ? const Color(0xFF0D0D0D)
+            : Colors.white, // ✅ Dynamic AppBar Color
+        iconTheme:
+            IconThemeData(color: isDarkMode ? Colors.white : Colors.black),
         actions: [
           IconButton(
             icon: Icon(isConnected ? Icons.check_circle : Icons.cancel,
@@ -305,6 +316,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _chatInputBox() {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
     return Padding(
       padding: const EdgeInsets.all(10.0),
       child: Row(
@@ -313,19 +326,37 @@ class _ChatScreenState extends State<ChatScreen> {
             child: TextField(
               controller: _messageController,
               autocorrect: false, // ✅ Disable auto-correct
+              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
               decoration: InputDecoration(
                 hintText: "Type a command...",
-                hintStyle: const TextStyle(color: Colors.black54),
+                hintStyle: TextStyle(
+                    color: isDarkMode ? Colors.white54 : Colors.black54),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25.0),
-                  borderSide: const BorderSide(color: Colors.grey),
+                  borderSide: BorderSide(
+                      color: isDarkMode
+                          ? Colors.white38
+                          : Colors.black26), // ✅ Thin border
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25.0),
+                  borderSide: BorderSide(
+                      color: isDarkMode ? Colors.white24 : Colors.black12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25.0),
+                  borderSide: BorderSide(
+                      color: isDarkMode
+                          ? Colors.white
+                          : Colors.black), // ✅ White focus border
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: Colors.transparent, // ✅ Transparent BG
                 prefixIcon: Provider.of<ChatProvider>(context, listen: true)
                         .canGoBack(widget.chatId)
                     ? IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.black),
+                        icon: Icon(Icons.arrow_back,
+                            color: isDarkMode ? Colors.white : Colors.black),
                         onPressed: () {
                           Provider.of<ChatProvider>(context, listen: false)
                               .goBackDirectory(widget.chatId);
@@ -335,13 +366,15 @@ class _ChatScreenState extends State<ChatScreen> {
                           _sendMessage();
                         },
                       )
-                    : null, // ✅ Only show when needed
+                    : null, // ✅ Show only when needed
               ),
-              style: const TextStyle(color: Colors.black),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.send, color: Colors.black),
+            icon: Icon(Icons.send,
+                color: isDarkMode
+                    ? Colors.white
+                    : Colors.black), // ✅ White for dark mode
             onPressed: _sendMessage,
           ),
         ],
@@ -427,10 +460,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageBubble(String text, bool isUserMessage) {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
+
     return GestureDetector(
       onLongPress: () {
         Clipboard.setData(ClipboardData(text: text)); // ✅ Copy to clipboard
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Copied to clipboard'),
@@ -442,13 +477,26 @@ class _ChatScreenState extends State<ChatScreen> {
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isUserMessage ? Colors.grey[300] : const Color(0xFFF0F0F0),
+          color: isUserMessage
+              ? (isDarkMode
+                  ? const Color(0xFF2A2A2A)
+                  : Colors.grey[
+                      300]) // ✅ Dark gray for dark mode, light gray for light mode
+              : (isDarkMode
+                  ? const Color(0xFF1E1E1E)
+                  : const Color(
+                      0xFFF0F0F0)), // ✅ Slightly darker for server response bubbles
           borderRadius: BorderRadius.circular(12),
         ),
         child: isUserMessage
             ? SelectableText(
                 text,
-                style: const TextStyle(fontSize: 16, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isDarkMode
+                      ? Colors.white
+                      : Colors.black, // ✅ Dynamic text color
+                ),
               )
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -464,10 +512,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 5),
                   SelectableText(
                     text,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       fontFamily: "monospace",
-                      color: Color.fromARGB(255, 66, 66, 66),
+                      color: isDarkMode
+                          ? Colors.white70
+                          : const Color.fromARGB(255, 66, 66,
+                              66), // ✅ Subtle contrast for server messages
                     ),
                   ),
                 ],
