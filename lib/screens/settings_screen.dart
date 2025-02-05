@@ -20,10 +20,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final secureAuthProvider = Provider.of<SecureAuthProvider>(context);
     final secureNetworkProvider = Provider.of<SecureNetworkProvider>(context);
 
+    // ✅ Theme-based colors
     final isDarkMode = themeProvider.currentTheme == "dark";
-    final backgroundColor = isDarkMode ? Colors.black : Colors.white;
+    final backgroundColor = isDarkMode ? const Color(0xFF0D0D0D) : Colors.white;
     final textColor = isDarkMode ? Colors.white : Colors.black;
-    final subTextColor = isDarkMode ? Colors.grey[400] : Colors.grey[600];
+    final subTextColor = isDarkMode ? Colors.grey[400] : Colors.grey[700];
     final toggleColor = isDarkMode ? Colors.white : Colors.black;
     final toggleInactiveColor =
         isDarkMode ? Colors.grey[600] : Colors.grey[400];
@@ -139,13 +140,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: secureNetworkProvider.trustedNetworks.length,
+                itemCount: secureNetworkProvider.allNetworks.length,
                 itemBuilder: (context, index) {
-                  final network = secureNetworkProvider.trustedNetworks[index];
+                  final network = secureNetworkProvider.allNetworks[index];
                   return ListTile(
                     title: Text(network, style: TextStyle(color: textColor)),
                     trailing: IconButton(
-                      icon: Icon(Icons.close, color: Colors.red, size: 20),
+                      icon: const Icon(Icons.close, color: Colors.red),
                       onPressed: () {
                         secureNetworkProvider.removeTrustedNetwork(network);
                       },

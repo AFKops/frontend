@@ -4,6 +4,7 @@ import '../providers/chat_provider.dart';
 import 'chat_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
+import '../providers/theme_provider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -139,21 +140,46 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// ✅ **Reusable TextField Widget**
-  Widget _buildTextField(
-      TextEditingController controller, String hintText, bool obscureText,
+  Widget _buildTextField(TextEditingController controller, String hintText,
+      bool obscureText, bool isDarkMode,
       {bool isPassword = false}) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
+      style: TextStyle(
+          color:
+              isDarkMode ? Colors.white : Colors.black), // ✅ Dynamic Text Color
       decoration: InputDecoration(
         hintText: hintText,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        hintStyle: TextStyle(
+            color: isDarkMode
+                ? Colors.grey[500]
+                : Colors.grey[700]), // ✅ Dynamic Hint Color
         filled: true,
-        fillColor: Colors.grey[200],
+        fillColor: Colors.transparent, // ✅ Transparent Background
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+              color: isDarkMode ? Colors.white54 : Colors.black26,
+              width: 1), // ✅ Dynamic Border
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+              color: isDarkMode ? Colors.white38 : Colors.black26, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+              color: isDarkMode ? Colors.white : Colors.black, width: 1),
+        ),
         suffixIcon: isPassword
             ? IconButton(
-                icon:
-                    Icon(obscureText ? Icons.visibility : Icons.visibility_off),
+                icon: Icon(
+                    obscureText ? Icons.visibility : Icons.visibility_off,
+                    color: isDarkMode
+                        ? Colors.white
+                        : Colors.black), // ✅ Dynamic Icon Color
                 onPressed: () {
                   setState(() {
                     _obscurePassword = !_obscurePassword;
@@ -167,25 +193,44 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context); // ✅ Get theme
+    final isDarkMode = themeProvider.isDarkMode;
+
     return Scaffold(
+      backgroundColor:
+          isDarkMode ? const Color(0xFF0D0D0D) : Colors.white, // ✅ Dynamic
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.menu),
+          icon: Icon(Icons.menu,
+              color: isDarkMode
+                  ? Colors.white
+                  : Colors.black), // ✅ Chat History Icon
           onPressed: () {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              MaterialPageRoute(
+                  builder: (context) =>
+                      const HistoryScreen()), // ✅ Open Chat History
             );
           },
         ),
         title: const Text("AFKOps"),
+        backgroundColor:
+            isDarkMode ? const Color(0xFF0D0D0D) : Colors.white, // ✅ Dynamic
+        iconTheme:
+            IconThemeData(color: isDarkMode ? Colors.white : Colors.black),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: Icon(Icons.settings,
+                color: isDarkMode
+                    ? Colors.white
+                    : Colors.black), // ✅ Settings Icon
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                MaterialPageRoute(
+                    builder: (context) =>
+                        const SettingsScreen()), // ✅ Open Settings
               );
             },
           ),
@@ -204,13 +249,14 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 15.0),
             child: Column(
               children: [
-                _buildTextField(_chatNameController, "Chat Name", false),
+                _buildTextField(
+                    _chatNameController, "Chat Name", false, isDarkMode),
                 const SizedBox(height: 10),
                 _buildTextField(_sshCommandController,
-                    "SSH Command (e.g., ssh root@IP)", false),
+                    "SSH Command (e.g., ssh root@IP)", false, isDarkMode),
                 const SizedBox(height: 10),
-                _buildTextField(
-                    _passwordController, "Password", _obscurePassword,
+                _buildTextField(_passwordController, "Password",
+                    _obscurePassword, isDarkMode,
                     isPassword: true),
                 const SizedBox(height: 10),
                 Row(
@@ -225,8 +271,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               _savePassword = value ?? false;
                             });
                           },
+                          activeColor: isDarkMode
+                              ? Colors.white
+                              : Colors.black, // ✅ Dynamic Checkbox Color
                         ),
-                        const Text("Save Password"),
+                        Text("Save Password",
+                            style: TextStyle(
+                                color: isDarkMode
+                                    ? Colors.white
+                                    : Colors.black)), // ✅ Dynamic
                       ],
                     ),
                     _isConnecting
@@ -234,12 +287,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         : ElevatedButton(
                             onPressed: () => _connectToServer(context),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
-                              foregroundColor: Colors.white,
+                              backgroundColor: isDarkMode
+                                  ? Colors.white
+                                  : Colors.black, // ✅ Dynamic Button Color
+                              foregroundColor: isDarkMode
+                                  ? Colors.black
+                                  : Colors.white, // ✅ Dynamic Text Color
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 40, vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                    color: isDarkMode
+                                        ? Colors.white
+                                        : Colors.black,
+                                    width: 1), // ✅ Border
                               ),
                             ),
                             child: const Text("Connect"),
@@ -250,14 +312,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const Spacer(),
-          _chatInputBox(),
+          _chatInputBox(isDarkMode),
         ],
       ),
     );
   }
 
   /// ✅ **Chat Box Now Creates General Chat**
-  Widget _chatInputBox() {
+  Widget _chatInputBox(bool isDarkMode) {
     return Padding(
       padding: const EdgeInsets.all(10.0),
       child: Row(
@@ -265,18 +327,42 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: TextField(
               controller: _chatMessageController,
-              decoration: const InputDecoration(
+              style: TextStyle(
+                  color: isDarkMode ? Colors.white : Colors.black), // ✅ Dynamic
+              decoration: InputDecoration(
                 hintText: "Start a chat...",
+                hintStyle: TextStyle(
+                    color: isDarkMode
+                        ? Colors.grey[500]
+                        : Colors.grey[700]), // ✅ Dynamic
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(25.0)),
+                  borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide(
+                      color: isDarkMode ? Colors.white54 : Colors.black26,
+                      width: 1), // ✅ Dynamic Border
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide(
+                      color: isDarkMode ? Colors.white38 : Colors.black26,
+                      width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                      width: 1),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: Colors.transparent, // ✅ Transparent Background
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.send, color: Colors.black),
+            icon: Icon(Icons.send,
+                color: isDarkMode
+                    ? Colors.white
+                    : Colors.black), // ✅ Dynamic Button Color
             onPressed: () async {
               String message = _chatMessageController.text.trim();
               if (message.isEmpty) return;
@@ -286,10 +372,9 @@ class _HomeScreenState extends State<HomeScreen> {
               final chatProvider =
                   Provider.of<ChatProvider>(context, listen: false);
 
-              // ✅ Start a new General Chat
               String chatId = await chatProvider.startNewChat(
                 chatName: "General Chat",
-                isGeneralChat: true, // ✅ Mark as general chat
+                isGeneralChat: true,
               );
 
               chatProvider.setCurrentChat(chatId);

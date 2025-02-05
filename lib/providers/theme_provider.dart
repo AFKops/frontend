@@ -34,32 +34,69 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
-  // Add this getter
   bool get isDarkMode => _currentTheme == "dark";
 
   ThemeData get themeData {
-    return _currentTheme == "dark" ? darkTheme : lightTheme;
+    return isDarkMode ? darkTheme : lightTheme;
   }
 }
 
-// Define Dark Theme
+// Define Dark Theme (with Soft Black & Outlines)
 final ThemeData darkTheme = ThemeData(
   brightness: Brightness.dark,
-  scaffoldBackgroundColor: Colors.black,
+  scaffoldBackgroundColor: const Color(0xFF0D0D0D), // ✅ Soft Black
   appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.black,
+    backgroundColor: Color(0xFF0D0D0D), // ✅ Soft Black for AppBar
     iconTheme: IconThemeData(color: Colors.white),
   ),
-  textTheme: const TextTheme(bodyMedium: TextStyle(color: Colors.white)),
+  textTheme: const TextTheme(
+    bodyMedium: TextStyle(color: Colors.white),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: Colors.transparent,
+    border: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.white54), // ✅ White outline
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.white38), // ✅ Subtle white outline
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.white), // ✅ More visible on focus
+    ),
+  ),
+  buttonTheme: const ButtonThemeData(
+    buttonColor: Colors.white, // ✅ White Buttons
+    textTheme: ButtonTextTheme.primary,
+  ),
 );
 
-// Define Light Theme
+// Define Light Theme (with Better Contrast)
 final ThemeData lightTheme = ThemeData(
   brightness: Brightness.light,
-  scaffoldBackgroundColor: Colors.white,
+  scaffoldBackgroundColor: const Color(0xFFF7F7F7), // ✅ Softer White
   appBarTheme: const AppBarTheme(
     backgroundColor: Colors.white,
     iconTheme: IconThemeData(color: Colors.black),
   ),
-  textTheme: const TextTheme(bodyMedium: TextStyle(color: Colors.black)),
+  textTheme: const TextTheme(
+    bodyMedium: TextStyle(color: Colors.black),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: Colors.white,
+    border: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.black12), // ✅ Subtle black outline
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.black26), // ✅ Soft outline
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderSide: BorderSide(color: Colors.black), // ✅ Darker on focus
+    ),
+  ),
+  buttonTheme: const ButtonThemeData(
+    buttonColor: Colors.black, // ✅ Black Buttons for Light Mode
+    textTheme: ButtonTextTheme.primary,
+  ),
 );
