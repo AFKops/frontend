@@ -17,6 +17,7 @@ class SecureNetworkProvider extends ChangeNotifier {
   }
 
   /// Load settings from storage
+  /// **Load settings from storage** (DO NOT call `getCurrentWifi()` here)
   Future<void> _loadSecureSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _isSecureInternetEnabled = prefs.getBool('secure_internet') ?? false;
@@ -25,12 +26,32 @@ class SecureNetworkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// **NEW: Trigger Network Security Check (Only when user reaches HomeScreen)**
+  Future<void> triggerNetworkCheck(BuildContext context) async {
+    if (!_isSecureInternetEnabled) return;
+
+    String? currentWifi = await getCurrentWifi();
+    if (currentWifi == null) return;
+
+    addToAllNetworks(currentWifi); // Ensure it's stored
+    bool isTrusted = await isCurrentNetworkTrusted();
+
+    if (!isTrusted) {
+      _showUntrustedNetworkAlert(context, currentWifi);
+    }
+  }
+
   /// Toggle Secure Internet option
-  Future<void> toggleSecureInternet() async {
+  Future<void> toggleSecureInternet(BuildContext context) async {
     _isSecureInternetEnabled = !_isSecureInternetEnabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('secure_internet', _isSecureInternetEnabled);
     notifyListeners();
+
+    // 🔥 **NEW: Immediately check current network**
+    if (_isSecureInternetEnabled) {
+      await triggerNetworkCheck(context);
+    }
   }
 
   /// **Check if Location Services are Enabled**

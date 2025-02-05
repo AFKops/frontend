@@ -42,26 +42,35 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: theme.colorScheme.background, // ✅ Use theme color
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_outline,
-                size: 50, color: Colors.white), // ✅ Thinner lock icon
+            Icon(
+              Icons.lock_outline,
+              size: 50,
+              color: theme.colorScheme.onBackground, // ✅ Adapts to theme
+            ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               "Authenticate to Access",
-              style: TextStyle(color: Colors.white, fontSize: 18),
+              style: TextStyle(
+                color: theme.colorScheme.onBackground, // ✅ Theme adaptive text
+                fontSize: 18,
+              ),
             ),
             const SizedBox(height: 20),
             if (!_isAuthenticating) // ✅ Only show button if authentication failed
               ElevatedButton(
                 onPressed: _triggerAuthentication,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: theme.colorScheme.onPrimary,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
                 ),

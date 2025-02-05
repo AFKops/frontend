@@ -13,8 +13,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _obscurePassword = true; // Toggle for password visibility
-
   @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context);
@@ -22,260 +20,143 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final secureAuthProvider = Provider.of<SecureAuthProvider>(context);
     final secureNetworkProvider = Provider.of<SecureNetworkProvider>(context);
 
+    final isDarkMode = themeProvider.currentTheme == "dark";
+    final backgroundColor = isDarkMode ? Colors.black : Colors.white;
+    final textColor = isDarkMode ? Colors.white : Colors.black;
+    final subTextColor = isDarkMode ? Colors.grey[400] : Colors.grey[600];
+    final toggleColor = isDarkMode ? Colors.white : Colors.black;
+    final toggleInactiveColor =
+        isDarkMode ? Colors.grey[600] : Colors.grey[400];
+
     return Scaffold(
+      backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: const Text("Settings", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text("Settings", style: TextStyle(color: textColor)),
+        backgroundColor: backgroundColor,
+        elevation: 0,
+        iconTheme: IconThemeData(color: textColor),
       ),
-      backgroundColor: Colors.black,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 20),
-
             /// **Appearance Settings**
-            const Text(
-              "Appearance",
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
             const SizedBox(height: 10),
+            Text("Appearance",
+                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
             Column(
-              children: ["system", "light", "dark"].map((theme) {
+              children: ["system", "light", "dark"].map((themeMode) {
                 return ListTile(
                   title: Text(
-                    theme == "system"
+                    themeMode == "system"
                         ? "System Default"
-                        : theme == "light"
+                        : themeMode == "light"
                             ? "Light Mode"
                             : "Dark Mode",
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: textColor),
                   ),
-                  trailing: themeProvider.currentTheme == theme
-                      ? const Icon(Icons.check, color: Colors.green)
+                  trailing: themeProvider.currentTheme == themeMode
+                      ? Icon(Icons.check, color: toggleColor)
                       : null,
                   onTap: () {
-                    themeProvider.setTheme(theme);
+                    themeProvider.setTheme(themeMode);
                   },
                 );
               }).toList(),
             ),
 
-            const SizedBox(height: 20),
-
             /// **Security Settings**
-            const Text(
-              "Security",
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
-
-            SwitchListTile(
-              title: const Text(
-                "Enable Biometric Authentication",
-                style: TextStyle(color: Colors.white),
-              ),
-              value: secureAuthProvider.isBiometricEnabled,
-              onChanged: (value) async {
-                await secureAuthProvider.toggleBiometricAccess();
-              },
-            ),
-
-            /// **Master Password Setting**
-            ListTile(
-              title: const Text(
-                "Set Master Password",
-                style: TextStyle(color: Colors.white),
-              ),
-              subtitle: const Text("Tap to change",
-                  style: TextStyle(color: Colors.grey)),
-              onTap: () async {
-                TextEditingController oldPasswordController =
-                    TextEditingController();
-                TextEditingController newPasswordController =
-                    TextEditingController();
-                TextEditingController confirmPasswordController =
-                    TextEditingController();
-
-                showDialog(
-                  context: context,
-                  builder: (context) => StatefulBuilder(
-                    builder: (context, setDialogState) => AlertDialog(
-                      title: const Text("Change Master Password"),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          /// Old Password Input
-                          TextField(
-                            controller: oldPasswordController,
-                            obscureText: _obscurePassword,
-                            decoration: InputDecoration(
-                              labelText: "Old Password",
-                              suffixIcon: IconButton(
-                                icon: Icon(_obscurePassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          /// New Password Input
-                          TextField(
-                            controller: newPasswordController,
-                            obscureText: _obscurePassword,
-                            decoration: const InputDecoration(
-                                labelText: "New Password"),
-                          ),
-                          const SizedBox(height: 10),
-
-                          /// Confirm Password Input
-                          TextField(
-                            controller: confirmPasswordController,
-                            obscureText: _obscurePassword,
-                            decoration: const InputDecoration(
-                                labelText: "Confirm New Password"),
-                          ),
-                        ],
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Cancel"),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            bool verified =
-                                await secureAuthProvider.verifyMasterPassword(
-                                    oldPasswordController.text);
-                            if (!verified) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text("Incorrect old password!")),
-                              );
-                              return;
-                            }
-
-                            if (newPasswordController.text !=
-                                confirmPasswordController.text) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text("Passwords do not match!")),
-                              );
-                              return;
-                            }
-
-                            bool success = await secureAuthProvider
-                                .setMasterPassword(newPasswordController.text);
-                            if (success) {
-                              Navigator.pop(context);
-                            }
-                          },
-                          child: const Text("Save"),
-                        ),
-                      ],
+            const SizedBox(height: 20),
+            Text("Security",
+                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
+            Padding(
+              padding: const EdgeInsets.only(left: 10), // Ensures alignment
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: ListTile(
+                      leading:
+                          Icon(Icons.fingerprint, color: textColor, size: 20),
+                      title: Text("Enable Biometric Authentication",
+                          style: TextStyle(color: textColor)),
                     ),
                   ),
-                );
-              },
+                  Transform.scale(
+                    scale: 0.75, // Smaller toggle
+                    child: Switch(
+                      value: secureAuthProvider.isBiometricEnabled,
+                      onChanged: (value) async {
+                        await secureAuthProvider.toggleBiometricAccess();
+                      },
+                      activeColor: toggleColor,
+                      inactiveTrackColor: toggleInactiveColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
-
-            const SizedBox(height: 20),
 
             /// **Secure Internet Settings**
-            const Text(
-              "Secure Internet",
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
+            const SizedBox(height: 20),
+            Text("Secure Internet",
+                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
+            Padding(
+              padding: const EdgeInsets.only(left: 10), // Align properly
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: ListTile(
+                      leading: Icon(Icons.security, color: textColor, size: 20),
+                      title: Text("Enable Secure Internet",
+                          style: TextStyle(color: textColor)),
+                    ),
+                  ),
+                  Transform.scale(
+                    scale: 0.75, // Smaller toggle
+                    child: Switch(
+                      value: secureNetworkProvider.isSecureInternetEnabled,
+                      onChanged: (value) {
+                        secureNetworkProvider.toggleSecureInternet(context);
+                      },
+                      activeColor: toggleColor,
+                      inactiveTrackColor: toggleInactiveColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
 
-            /// **Enable Secure Internet Toggle**
-            SwitchListTile(
-              title: const Text(
-                "Enable Secure Internet",
-                style: TextStyle(color: Colors.white),
-              ),
-              value: secureNetworkProvider.isSecureInternetEnabled,
-              onChanged: (value) {
-                secureNetworkProvider.toggleSecureInternet();
-              },
-            ),
-
-            /// **Trusted Networks List**
-            if (secureNetworkProvider.allNetworks.isNotEmpty) ...[
+            /// **Show Trusted Networks List (Only if Secure Internet is Enabled)**
+            if (secureNetworkProvider.isSecureInternetEnabled &&
+                secureNetworkProvider.allNetworks.isNotEmpty) ...[
               const SizedBox(height: 10),
-              const Text(
-                "Trusted Networks",
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
+              Text("Trusted Networks",
+                  style: TextStyle(color: subTextColor, fontSize: 14)),
               const SizedBox(height: 10),
-
-              /// **Network List with Better UI**
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: secureNetworkProvider.allNetworks.length,
+                itemCount: secureNetworkProvider.trustedNetworks.length,
                 itemBuilder: (context, index) {
-                  final network = secureNetworkProvider.allNetworks[index];
-                  return Card(
-                    color: Colors.grey[900],
-                    margin: const EdgeInsets.symmetric(vertical: 5),
-                    child: ListTile(
-                      title: Text(
-                        network,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          /// **Trusted Network Toggle**
-                          Switch(
-                            value: secureNetworkProvider.trustedNetworks
-                                .contains(network),
-                            onChanged: (value) {
-                              if (value) {
-                                secureNetworkProvider
-                                    .addTrustedNetwork(network);
-                              } else {
-                                secureNetworkProvider
-                                    .removeTrustedNetwork(network);
-                              }
-                            },
-                          ),
-
-                          /// **Delete Network Button**
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () {
-                              secureNetworkProvider
-                                  .removeFromAllNetworks(network);
-                            },
-                          ),
-                        ],
-                      ),
+                  final network = secureNetworkProvider.trustedNetworks[index];
+                  return ListTile(
+                    title: Text(network, style: TextStyle(color: textColor)),
+                    trailing: IconButton(
+                      icon: Icon(Icons.close, color: Colors.red, size: 20),
+                      onPressed: () {
+                        secureNetworkProvider.removeTrustedNetwork(network);
+                      },
                     ),
                   );
                 },
               ),
             ],
 
-            const SizedBox(height: 20),
-
             /// **Clear All Chats Button**
+            const SizedBox(height: 40),
             Center(
               child: ElevatedButton(
                 onPressed: () {
@@ -285,13 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
+                  backgroundColor: toggleColor,
+                  foregroundColor: backgroundColor,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                      borderRadius: BorderRadius.circular(5)),
                 ),
                 child: const Text("Delete All Chats",
                     style: TextStyle(fontWeight: FontWeight.bold)),
@@ -305,3 +185,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
+
+/// **Reusable Styles**
+const TextStyle _sectionHeaderStyle = TextStyle(
+  fontSize: 16,
+  fontWeight: FontWeight.bold,
+);
