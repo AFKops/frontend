@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 
 class SSHService {
   final String apiUrl =
-      "http://192.168.1.105:5000/ssh"; // Replace with actual API URL
+      "http://64.227.5.203:5000/ssh"; // Replace with actual API URL http://192.168.1.105:5000/ssh
 
   /// ✅ **Fetch SSH Welcome Message from API**
   Future<String> getSSHWelcomeMessage({

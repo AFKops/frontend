@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/secure_auth_provider.dart';
+import '../providers/theme_provider.dart';
 import 'home_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -42,11 +43,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.background, // ✅ Use theme color
+      backgroundColor: isDarkMode
+          ? const Color(0xFF0D0D0D)
+          : Colors.white, // ✅ Matches new dark mode
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -54,25 +57,43 @@ class _AuthScreenState extends State<AuthScreen> {
             Icon(
               Icons.lock_outline,
               size: 50,
-              color: theme.colorScheme.onBackground, // ✅ Adapts to theme
+              color: isDarkMode
+                  ? Colors.white
+                  : Colors.black, // ✅ Icon adapts to theme
             ),
             const SizedBox(height: 20),
             Text(
               "Authenticate to Access",
               style: TextStyle(
-                color: theme.colorScheme.onBackground, // ✅ Theme adaptive text
+                color: isDarkMode
+                    ? Colors.white
+                    : Colors.black, // ✅ Text follows theme
                 fontSize: 18,
+                fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(height: 20),
-            if (!_isAuthenticating) // ✅ Only show button if authentication failed
+            if (!_isAuthenticating) // ✅ Show only when authentication fails
               ElevatedButton(
                 onPressed: _triggerAuthentication,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: theme.colorScheme.onPrimary,
+                  backgroundColor: isDarkMode
+                      ? Colors.white
+                      : Colors.black, // ✅ Button follows theme
+                  foregroundColor: isDarkMode
+                      ? Colors.black
+                      : Colors.white, // ✅ Text color adapts
                   padding:
                       const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isDarkMode
+                          ? Colors.white
+                          : Colors.black, // ✅ Subtle border for contrast
+                      width: 1.5,
+                    ),
+                  ),
                 ),
                 child: const Text("Authenticate"),
               ),

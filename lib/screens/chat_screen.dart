@@ -154,6 +154,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// **Displays a Popup with Directory Contents**
   void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
+
     await Provider.of<ChatProvider>(context, listen: false)
         .updateFileSuggestions(widget.chatId);
 
@@ -178,6 +181,9 @@ class _ChatScreenState extends State<ChatScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
+      color: isDarkMode
+          ? const Color(0xFF1E1E1E) // ✅ Dark mode background
+          : Colors.white, // ✅ Light mode background
       items: [
         if (Provider.of<ChatProvider>(context, listen: false)
             .canGoBack(widget.chatId))
@@ -192,14 +198,18 @@ class _ChatScreenState extends State<ChatScreen> {
             },
             child: Row(
               children: [
-                const Icon(Icons.arrow_back, size: 16, color: Colors.black54),
+                Icon(Icons.arrow_back,
+                    size: 16,
+                    color: isDarkMode ? Colors.white54 : Colors.black54),
                 const SizedBox(width: 5),
-                const Text(
+                Text(
                   "Go Back",
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: "monospace",
-                    color: Colors.black54,
+                    color: isDarkMode
+                        ? Colors.white // ✅ White text in dark mode
+                        : Colors.black54, // ✅ Black text in light mode
                   ),
                 ),
               ],
@@ -214,10 +224,12 @@ class _ChatScreenState extends State<ChatScreen> {
             },
             child: Text(
               dir,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontFamily: "monospace",
-                color: Colors.black87,
+                color: isDarkMode
+                    ? Colors.white // ✅ White text for dark mode
+                    : Colors.black87, // ✅ Black text for light mode
               ),
             ),
           );
@@ -383,40 +395,36 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _tagPopup() {
-    if (_filteredSuggestions.isEmpty)
-      return const SizedBox.shrink(); // Hide if empty
+    if (_filteredSuggestions.isEmpty) return const SizedBox.shrink();
+
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
 
     return Positioned(
-      left: 15, // Align to left
-      bottom: 75, // Position above the input
+      left: 15,
+      bottom: 75,
       child: Material(
         color: Colors.transparent,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 6, vertical: 3), // ✅ More compact padding
-          decoration: BoxDecoration(
-            color: Colors.grey[50], // ✅ Softer background
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 3)],
-          ),
+          width: MediaQuery.of(context).size.width -
+              30, // ✅ Ensure it fits within screen width
           child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+            scrollDirection: Axis.horizontal, // ✅ Horizontal scroll enabled
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: _filteredSuggestions.map((dir) {
                 return GestureDetector(
                   onTap: () {
                     setState(() {
-                      String selectedDir =
-                          dir; // ✅ Reference the tapped directory
+                      String selectedDir = dir;
                       String currentText = _messageController.text.trim();
 
                       if (currentText.startsWith("cd ")) {
                         List<String> parts = currentText.split(" ");
-
                         if (parts.length > 1) {
                           List<String> pathParts = parts[1].split("/");
                           pathParts
-                              .removeLast(); // ✅ Remove the incomplete directory
+                              .removeLast(); // ✅ Remove incomplete directory
                           pathParts
                               .add(selectedDir); // ✅ Add full directory name
                           _messageController.text = "cd " + pathParts.join("/");
@@ -434,19 +442,21 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5), // ✅ Compact spacing
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: Colors.grey[100], // ✅ Light background
+                      color: isDarkMode
+                          ? const Color(0xFF2A2A2A)
+                          : Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       dir,
-                      style: const TextStyle(
-                        fontSize: 12, // ✅ Smaller font
-                        fontFamily: 'monospace', // ✅ Monospace font
-                        fontWeight: FontWeight.w300, // ✅ Lighter font weight
-                        color: Colors.black87, // ✅ Darker text for contrast
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w300,
+                        color: isDarkMode ? Colors.white : Colors.black87,
                       ),
                     ),
                   ),
@@ -556,6 +566,9 @@ class _TypingIndicatorState extends State<_TypingIndicator>
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (index) {
@@ -566,9 +579,15 @@ class _TypingIndicatorState extends State<_TypingIndicator>
             builder: (context, child) {
               return Opacity(
                 opacity: (_animation.value - (index * 0.2)).clamp(0.3, 1.0),
-                child: const Text(
+                child: Text(
                   "•",
-                  style: TextStyle(fontSize: 24, color: Colors.black),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode
+                        ? Colors.white // ✅ White in dark mode
+                        : Colors.black, // ✅ Black in light mode
+                  ),
                 ),
               );
             },
