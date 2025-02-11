@@ -4,13 +4,18 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import '../services/ssh_service.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class ChatProvider extends ChangeNotifier {
   Map<String, Map<String, dynamic>> _chats = {};
   String _currentChatId = "";
   bool _isConnected = false;
+  Map<String, WebSocketChannel?> _streamingSockets =
+      {}; // ✅ Store active WebSocket connections
 
-  /// ✅ Checks if the user can go back one directory
+  // ✅ Define WebSocket URL
+  final String wsUrl = "ws://137.184.69.130:5000/ssh-stream";
+
   /// ✅ Checks if the user can go back one directory
   bool canGoBack(String chatId) {
     if (!chats.containsKey(chatId)) return false; // ✅ Prevents errors
@@ -196,6 +201,127 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  bool _isStreamingCommand(String command) {
+    List<String> streamingCommands = ["journalctl --follow", "tail -f", "htop"];
+    return streamingCommands.any((cmd) => command.startsWith(cmd));
+  }
+
+  /// ✅ Checks if a command needs streaming
+  bool isStreamingCommand(String command) {
+    List<String> streamingCommands = ["journalctl --follow", "tail -f", "htop"];
+    return streamingCommands.any((cmd) => command.startsWith(cmd));
+  }
+
+  /// ✅ Starts WebSocket Streaming
+  void startStreaming(String chatId, String command) {
+    var chatData = _chats[chatId];
+    if (chatData == null) return;
+
+    // Close any existing streaming connection
+    stopStreaming(chatId);
+
+    // ✅ Create WebSocket connection
+    final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+    // ✅ Store connection
+    _streamingSockets[chatId] = channel;
+
+    // ✅ Send SSH credentials & command to the WebSocket
+    channel.sink.add(jsonEncode({
+      "host": chatData['host'],
+      "username": chatData['username'],
+      "password": chatData['password'],
+      "command": command,
+    }));
+
+    // ✅ Listen for streaming data
+    channel.stream.listen(
+      (message) {
+        final data = jsonDecode(message);
+        if (data.containsKey("output")) {
+          addMessage(chatId, data["output"], isUser: false, isStreaming: true);
+        } else if (data.containsKey("error")) {
+          addMessage(chatId, "❌ ${data["error"]}", isUser: false);
+        }
+      },
+      onDone: () {
+        stopStreaming(chatId); // Close WebSocket when done
+      },
+      onError: (error) {
+        addMessage(chatId, "❌ WebSocket Error: $error", isUser: false);
+        stopStreaming(chatId);
+      },
+    );
+
+    notifyListeners();
+  }
+
+  /// ✅ Stops an active WebSocket stream
+  void stopStreaming(String chatId) {
+    if (_streamingSockets.containsKey(chatId)) {
+      _streamingSockets[chatId]?.sink.close();
+      _streamingSockets.remove(chatId);
+    }
+    notifyListeners();
+  }
+
+  /// ✅ Checks if a chat has an active streaming session
+  bool isStreaming(String chatId) {
+    return _streamingSockets.containsKey(chatId);
+  }
+
+  /// ✅ Add message (Now supports streaming)
+  void addMessage(
+    String chatId,
+    String message, {
+    required bool isUser,
+    bool isStreaming = false,
+  }) {
+    if (!_chats.containsKey(chatId)) return;
+
+    List<Map<String, dynamic>> messages =
+        List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
+
+    // ✅ Prevent exact duplicate messages (except for streaming)
+    if (!isStreaming &&
+        messages.isNotEmpty &&
+        messages.last['text'] == message) {
+      return;
+    }
+
+    // ✅ If it's a streaming message, add it as a new entry instead of appending
+    if (isStreaming && !isUser) {
+      _chats[chatId]?['messages']
+          .add({'text': message, 'isUser': isUser, 'isStreaming': true});
+    } else {
+      _chats[chatId]?['messages'].add({'text': message, 'isUser': isUser});
+    }
+
+    _chats[chatId]?['lastActive'] = DateTime.now().toIso8601String();
+    saveChatHistory();
+    notifyListeners();
+  }
+
+  void _startWebSocketStreaming(String chatId, String command) {
+    var chatData = _chats[chatId];
+    if (chatData == null) return;
+
+    SSHService().connectToWebSocket(
+      host: chatData['host'],
+      username: chatData['username'],
+      password: chatData['password'],
+      command: command,
+      onMessageReceived: (output) {
+        addMessage(chatId, output, isUser: false);
+      },
+      onError: (error) {
+        addMessage(chatId, "❌ WebSocket Error: $error", isUser: false);
+        _chats[chatId]?['isStreaming'] = false;
+        notifyListeners();
+      },
+    );
+  }
+
   /// ✅ **Handles running commands in the correct directory**
   Future<String> sendCommand(String chatId, String command) async {
     var chatData = _chats[chatId];
@@ -211,13 +337,23 @@ class ChatProvider extends ChangeNotifier {
       if (newDir.isNotEmpty) {
         _chats[chatId]?['currentDirectory'] = newDir;
         saveChatHistory();
-        return addMessage(chatId, "📂 Now in: $newDir", isUser: false);
+        addMessage(chatId, "📂 Now in: $newDir", isUser: false);
+        return "📂 Now in: $newDir"; // ✅ Return string manually
       } else {
-        return addMessage(chatId, "❌ Invalid directory", isUser: false);
+        addMessage(chatId, "❌ Invalid directory", isUser: false);
+        return "❌ Invalid directory"; // ✅ Return string manually
       }
     }
 
-    // ✅ **Run the command in the current directory**
+    // ✅ **Check if the command requires WebSocket streaming**
+    if (_isStreamingCommand(command)) {
+      _chats[chatId]?['isStreaming'] = true;
+      notifyListeners();
+      _startWebSocketStreaming(chatId, command);
+      return "📡 Streaming started..."; // ✅ Return the streaming message
+    }
+
+    // ✅ **Run the command using HTTP for short commands**
     String fullCommand = "cd $currentDir && $command";
     try {
       String response = await SSHService().executeCommand(
@@ -227,11 +363,14 @@ class ChatProvider extends ChangeNotifier {
         command: fullCommand,
       );
 
-      return addMessage(chatId, response.trim(), isUser: false);
+      addMessage(chatId, response.trim(), isUser: false);
+      return response.trim(); // ✅ Return the response string
     } catch (e) {
       _isConnected = false;
       notifyListeners();
-      return addMessage(chatId, "❌ SSH API Error: $e", isUser: false);
+      String errorMessage = "❌ SSH API Error: $e";
+      addMessage(chatId, errorMessage, isUser: false);
+      return errorMessage; // ✅ Return error message
     }
   }
 
@@ -286,24 +425,6 @@ class ChatProvider extends ChangeNotifier {
     String parentDir = parts.join("/") == "" ? "/" : parts.join("/");
 
     return await _validateDirectory(chatData, parentDir);
-  }
-
-  /// ✅ **Prevents duplicate messages**
-  String addMessage(String chatId, String message, {required bool isUser}) {
-    if (!_chats.containsKey(chatId)) return message;
-
-    List<Map<String, dynamic>> messages =
-        List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
-
-    if (messages.isNotEmpty && messages.last['text'] == message) {
-      return message;
-    }
-
-    _chats[chatId]?['messages'].add({'text': message, 'isUser': isUser});
-    _chats[chatId]?['lastActive'] = DateTime.now().toIso8601String();
-    saveChatHistory();
-    notifyListeners();
-    return message;
   }
 
   /// ✅ **Delete a chat**

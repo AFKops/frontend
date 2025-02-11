@@ -1,11 +1,16 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class SSHService {
   final String apiUrl =
-      "http://64.227.5.203:5000/ssh"; // Replace with actual API URL http://192.168.1.105:5000/ssh
+      "http://137.184.69.130:5000/ssh"; // HTTP for short commands
+  final String wsUrl =
+      "ws://137.184.69.130:5000/ssh-stream"; // WebSocket for streaming
 
-  /// ✅ **Fetch SSH Welcome Message from API**
+  WebSocketChannel? _channel;
+
+  /// ✅ **Fetch SSH Welcome Message via HTTP (Short Command)**
   Future<String> getSSHWelcomeMessage({
     required String host,
     required String username,
@@ -41,11 +46,11 @@ class SSHService {
     }
   }
 
-  /// ✅ **Execute SSH Command**
+  /// ✅ **Execute SSH Command via HTTP (For Quick Commands)**
   Future<String> executeCommand({
     required String host,
     required String username,
-    required String password, // ✅ Ensure password is always sent
+    required String password,
     required String command,
   }) async {
     try {
@@ -55,9 +60,7 @@ class SSHService {
         body: jsonEncode({
           "host": host,
           "username": username,
-          "password": password.isNotEmpty
-              ? password
-              : "default_placeholder", // ✅ Always send a password
+          "password": password.isNotEmpty ? password : "default_placeholder",
           "command": command,
         }),
       );
@@ -73,7 +76,7 @@ class SSHService {
     }
   }
 
-  /// ✅ **NEW: List Only Directories in a Directory for `cd`**
+  /// ✅ **List Only Directories via HTTP (For cd Autocomplete)**
   Future<List<String>> listFiles({
     required String host,
     required String username,
@@ -90,7 +93,7 @@ class SSHService {
           "host": host,
           "username": username,
           "password": password,
-          "command": 'ls -p "$directory" | grep "/\$"', // ✅ Escaped properly
+          "command": 'ls -p "$directory" | grep "/\$"',
         }),
       );
 
@@ -99,7 +102,6 @@ class SSHService {
         String output = data["output"] ?? "";
         List<String> directories = output.trim().split("\n");
 
-        // ✅ Debugging Output
         print("📂 Found directories: $directories");
 
         return directories;
@@ -111,5 +113,59 @@ class SSHService {
       print("🔴 Error fetching directories: $e");
       return [];
     }
+  }
+
+  /// ✅ **Connect to WebSocket for Continuous Command Streaming**
+  void connectToWebSocket({
+    required String host,
+    required String username,
+    required String password,
+    required String command,
+    required Function(String) onMessageReceived,
+    required Function(String) onError,
+  }) {
+    print("🌐 Connecting to WebSocket: $wsUrl");
+
+    // Open WebSocket Connection
+    _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+    // Send SSH credentials and command
+    final message = jsonEncode({
+      "host": host,
+      "username": username,
+      "password": password,
+      "command": command,
+    });
+
+    print("📤 Sending SSH Data: $message");
+    _channel?.sink.add(message);
+
+    // Listen for real-time responses
+    _channel?.stream.listen(
+      (message) {
+        final data = jsonDecode(message);
+        if (data['output'] != null) {
+          print("🟢 Received Output: ${data['output']}");
+          onMessageReceived(data['output']);
+        } else if (data['error'] != null) {
+          print("🔴 Received Error: ${data['error']}");
+          onError(data['error']);
+        }
+      },
+      onError: (error) {
+        print("⚠️ WebSocket Error: $error");
+        onError('WebSocket error: $error');
+      },
+      onDone: () {
+        print("🔻 WebSocket connection closed.");
+        onError('WebSocket connection closed');
+      },
+    );
+  }
+
+  /// ✅ **Close WebSocket Connection (To Stop Streaming)**
+  void closeWebSocket() {
+    _channel?.sink.close();
+    print("🔻 WebSocket Closed.");
   }
 }

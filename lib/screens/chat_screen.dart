@@ -24,11 +24,19 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAtBottom = true;
   List<String> _fileSuggestions = []; // Stores the suggested files
 
+  void _updateStreamingMessages() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.addListener(_updateStreamingMessages);
 
     _messageController.addListener(() async {
       String input = _messageController.text.trim();
@@ -120,27 +128,39 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (message.isEmpty) return;
 
+    // ✅ Stop existing streaming if a new command is sent
+    if (chatProvider.isStreaming(widget.chatId)) {
+      chatProvider.stopStreaming(widget.chatId);
+    }
+
     chatProvider.addMessage(widget.chatId, message, isUser: true);
     _startTypingIndicator();
     _scrollToBottom(immediate: true); // ✅ Fast scroll when sending a message
 
     try {
-      String response = await chatProvider.sendCommand(widget.chatId, message);
+      // ✅ Check if the command is a streaming command
+      if (chatProvider.isStreamingCommand(message)) {
+        chatProvider.startStreaming(widget.chatId, message);
+      } else {
+        // ✅ Regular command handling (via HTTP API)
+        String response =
+            await chatProvider.sendCommand(widget.chatId, message);
 
-      setState(() {
-        // ✅ If "cd" command, update suggestions; otherwise, clear popup
-        if (message.startsWith("cd ")) {
-          chatProvider.updateFileSuggestions(widget.chatId);
-          _fileSuggestions =
-              chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
-        } else {
-          _filteredSuggestions.clear(); // ✅ Hide popup for non-cd commands
-          _showTagPopup = false;
-        }
-      });
+        setState(() {
+          // ✅ If "cd" command, update suggestions; otherwise, clear popup
+          if (message.startsWith("cd ")) {
+            chatProvider.updateFileSuggestions(widget.chatId);
+            _fileSuggestions =
+                chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
+          } else {
+            _filteredSuggestions.clear(); // ✅ Hide popup for non-cd commands
+            _showTagPopup = false;
+          }
+        });
 
-      _stopTypingIndicator();
-      chatProvider.addMessage(widget.chatId, response, isUser: false);
+        _stopTypingIndicator();
+        chatProvider.addMessage(widget.chatId, response, isUser: false);
+      }
 
       Future.delayed(const Duration(milliseconds: 100), () {
         _scrollToBottom(); // ✅ Smooth scroll when response arrives
@@ -293,12 +313,18 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                     final message = messages[index];
                     final bool isUserMessage = message['isUser'] ?? false;
+
+                    // ✅ If this is the last message and it's streaming, mark it
+                    bool isStreaming =
+                        chatProvider.isStreaming(widget.chatId) &&
+                            index == messages.length - 1;
+
                     return Align(
                       alignment: isUserMessage
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
-                      child:
-                          _buildMessageBubble(message['text'], isUserMessage),
+                      child: _buildMessageBubble(message['text'], isUserMessage,
+                          isStreaming: isStreaming),
                     );
                   },
                 ),
@@ -469,7 +495,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(String text, bool isUserMessage) {
+  Widget _buildMessageBubble(String text, bool isUserMessage,
+      {bool isStreaming = false}) {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
 
@@ -531,6 +558,27 @@ class _ChatScreenState extends State<ChatScreen> {
                               66), // ✅ Subtle contrast for server messages
                     ),
                   ),
+                  if (isStreaming) // ✅ Add a streaming indicator if the message is a continuous output
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Row(
+                        children: [
+                          const Text(
+                            "Streaming...",
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(width: 5),
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
       ),
