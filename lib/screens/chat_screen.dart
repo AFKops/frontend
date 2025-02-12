@@ -112,6 +112,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _startTypingIndicator() {
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final lastMessage = chatProvider.getMessages(widget.chatId).lastOrNull;
+
+    // ✅ Don't show "..." if it's a streaming command!
+    if (lastMessage != null &&
+        chatProvider.isStreamingCommand(lastMessage['text'])) {
+      return;
+    }
+
     setState(() => _isTyping = true);
     _scrollToBottom();
   }
@@ -323,8 +332,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       alignment: isUserMessage
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
-                      child: _buildMessageBubble(message['text'], isUserMessage,
-                          isStreaming: isStreaming),
+                      child: _buildMessageBubble(
+                        message['text'],
+                        isUserMessage,
+                        isStreaming: isStreaming,
+                        chatId: widget.chatId, // ✅ Pass chatId
+                        index: index, // ✅ FIX: Pass the index
+                      ),
                     );
                   },
                 ),
@@ -496,9 +510,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageBubble(String text, bool isUserMessage,
-      {bool isStreaming = false}) {
+      {bool isStreaming = false, required String chatId, required int index}) {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
+    final chatProvider = Provider.of<ChatProvider>(context);
 
     return GestureDetector(
       onLongPress: () {
@@ -515,72 +530,72 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isUserMessage
-              ? (isDarkMode
-                  ? const Color(0xFF2A2A2A)
-                  : Colors.grey[
-                      300]) // ✅ Dark gray for dark mode, light gray for light mode
+              ? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[300])
               : (isDarkMode
                   ? const Color(0xFF1E1E1E)
-                  : const Color(
-                      0xFFF0F0F0)), // ✅ Slightly darker for server response bubbles
+                  : const Color(0xFFF0F0F0)),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: isUserMessage
-            ? SelectableText(
-                text,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: isDarkMode
-                      ? Colors.white
-                      : Colors.black, // ✅ Dynamic text color
-                ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Bash",
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                fontFamily: "monospace",
+                color: isDarkMode ? Colors.white70 : Colors.black87,
+              ),
+            ),
+            if (isStreaming &&
+                index ==
+                    chatProvider.getMessages(chatId).length -
+                        1) // ✅ Only last streaming message
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Row(
+                  children: [
+                    const Text(
+                      "Streaming...",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  SelectableText(
-                    text,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontFamily: "monospace",
-                      color: isDarkMode
-                          ? Colors.white70
-                          : const Color.fromARGB(255, 66, 66,
-                              66), // ✅ Subtle contrast for server messages
-                    ),
-                  ),
-                  if (isStreaming) // ✅ Add a streaming indicator if the message is a continuous output
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Row(
-                        children: [
-                          const Text(
-                            "Streaming...",
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                          const SizedBox(width: 5),
-                          SizedBox(
-                            width: 10,
-                            height: 10,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.5,
-                              color: isDarkMode ? Colors.white : Colors.black,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(width: 5),
+                    SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: isDarkMode ? Colors.white : Colors.black,
                       ),
                     ),
-                ],
+                    const Spacer(),
+                    ElevatedButton(
+                      onPressed: () {
+                        chatProvider.stopStreaming(chatId);
+                        Future.delayed(const Duration(milliseconds: 200), () {
+                          if (mounted) {
+                            setState(() {}); // ✅ Refresh UI when stopped
+                          }
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        "🛑 Stop Streaming",
+                        style: TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
               ),
+          ],
+        ),
       ),
     );
   }

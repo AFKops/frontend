@@ -18,66 +18,63 @@ app = Quart(__name__)
 @app.websocket('/ssh-stream')
 async def ssh_stream():
     logger = logging.getLogger('websocket')
+    active_process = None  # ✅ Store process reference to stop it later
+
     try:
         await websocket.accept()
         logger.info("WebSocket connection established")
-        
-        data = await websocket.receive_json()
-        logger.debug(f"Received JSON data: {json.dumps(data, indent=2)}")
-        
-        host = data.get("host")
-        username = data.get("username")
-        command = data.get("command")
-        
-        logger.info(f"Connection request to {username}@{host} for command: {command}")
 
-        if not all([host, username, data.get("password"), command]):
-            logger.error("Missing parameters in request")
-            await websocket.send_json({"error": "Missing parameters"})
-            return
+        while True:
+            data = await websocket.receive_json()
+            logger.debug(f"Received JSON data: {json.dumps(data, indent=2)}")
 
-        safe_command = f"stdbuf -oL {command}"
-        logger.debug(f"Sanitized command: {safe_command}")
+            host = data.get("host")
+            username = data.get("username")
+            command = data.get("command")
 
-        async with asyncssh.connect(
-            host=host, 
-            username=username, 
-            password=data.get("password"), 
-            known_hosts=None
-        ) as conn:
-            logger.info(f"SSH connection established to {host}")
-            
-            async with conn.create_process(safe_command, term_type="xterm") as process:
-                logger.info(f"Process started for command: {safe_command}")  # Changed here
-                
-                async def read_stdout():
-                    logger.debug("Starting stdout reader")
-                    while True:
-                        try:
+            if command == "STOP":  # ✅ Handle Stop Signal
+                if active_process:
+                    logger.info("Stopping streaming process...")
+                    active_process.terminate()
+                    active_process = None  # Reset process reference
+                await websocket.send_json({"output": "❌ Streaming stopped."})
+                continue  # Wait for more messages
+
+            if not all([host, username, data.get("password"), command]):
+                await websocket.send_json({"error": "Missing parameters"})
+                return
+
+            safe_command = f"stdbuf -oL {command}"
+            logger.debug(f"Sanitized command: {safe_command}")
+
+            async with asyncssh.connect(
+                host=host, 
+                username=username, 
+                password=data.get("password"), 
+                known_hosts=None
+            ) as conn:
+                logger.info(f"SSH connection established to {host}")
+
+                async with conn.create_process(safe_command, term_type="xterm") as process:
+                    active_process = process  # ✅ Store process reference
+
+                    async def read_stdout():
+                        while not process.stdout.at_eof():
                             line = await process.stdout.readline()
-                            if not line:
+                            if line:
+                                await websocket.send_json({"output": line.strip()})
+                            else:
                                 break
-                            clean_line = line.strip()
-                            logger.debug(f"STDOUT: {clean_line}")
-                            await websocket.send_json({"output": clean_line})
-                        except asyncio.IncompleteReadError:
-                            break
 
-                async def read_stderr():
-                    logger.debug("Starting stderr reader")
-                    while True:
-                        try:
+                    async def read_stderr():
+                        while not process.stderr.at_eof():
                             error_line = await process.stderr.readline()
-                            if not error_line:
+                            if error_line:
+                                await websocket.send_json({"error": error_line.strip()})
+                            else:
                                 break
-                            clean_error = error_line.strip()
-                            logger.warning(f"STDERR: {clean_error}")
-                            await websocket.send_json({"error": clean_error})
-                        except asyncio.IncompleteReadError:
-                            break
 
-                await asyncio.gather(read_stdout(), read_stderr())
-                logger.info("Command execution completed")
+                    await asyncio.gather(read_stdout(), read_stderr())
 
     except asyncio.IncompleteReadError:
         logger.debug("Process terminated with incomplete read")
@@ -88,8 +85,11 @@ async def ssh_stream():
         logger.exception("Unexpected error in WebSocket handler:")
         await websocket.send_json({"error": f"Server Error: {str(e)}"})
     finally:
+        if active_process:
+            active_process.terminate()  # ✅ Ensure cleanup
         await websocket.close(code=1000, reason="Command execution completed")
         logger.info("WebSocket connection closed")
+
 
 
 @app.route('/ssh', methods=['POST'])

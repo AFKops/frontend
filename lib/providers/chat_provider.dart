@@ -212,13 +212,14 @@ class ChatProvider extends ChangeNotifier {
     return streamingCommands.any((cmd) => command.startsWith(cmd));
   }
 
-  /// ✅ Starts WebSocket Streaming
   void startStreaming(String chatId, String command) {
     var chatData = _chats[chatId];
     if (chatData == null) return;
 
-    // Close any existing streaming connection
-    stopStreaming(chatId);
+    // ✅ STOP any existing stream BEFORE starting a new one
+    if (_streamingSockets.containsKey(chatId)) {
+      stopStreaming(chatId); // ✅ Ensures backend process is stopped
+    }
 
     // ✅ Create WebSocket connection
     final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
@@ -245,7 +246,7 @@ class ChatProvider extends ChangeNotifier {
         }
       },
       onDone: () {
-        stopStreaming(chatId); // Close WebSocket when done
+        stopStreaming(chatId); // ✅ Ensure cleanup when done
       },
       onError: (error) {
         addMessage(chatId, "❌ WebSocket Error: $error", isUser: false);
@@ -256,13 +257,23 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ✅ Stops an active WebSocket stream
+  /// ✅ **Stops an active WebSocket stream by sending CTRL+C first**
   void stopStreaming(String chatId) {
     if (_streamingSockets.containsKey(chatId)) {
+      // ✅ Send CTRL+C to stop the process
+      _streamingSockets[chatId]?.sink.add(jsonEncode({"command": "\u0003"}));
+
+      // ✅ Close WebSocket
       _streamingSockets[chatId]?.sink.close();
       _streamingSockets.remove(chatId);
+
+      // ✅ Update chat status
+      _chats[chatId]?['isStreaming'] = false;
+      notifyListeners();
+
+      // ✅ Fake output to force UI refresh
+      addMessage(chatId, "❌ Streaming stopped.", isUser: false);
     }
-    notifyListeners();
   }
 
   /// ✅ Checks if a chat has an active streaming session
