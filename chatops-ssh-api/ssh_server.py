@@ -15,10 +15,15 @@ logging.basicConfig(
 
 app = Quart(__name__)
 
+# Store WebSocket connections and their corresponding SSH connections
+active_connections = {}
+
+active_sessions = {}  # Format: {session_id: {"conn": asyncssh.Connection, "process": asyncssh.Process}}
+
 @app.websocket('/ssh-stream')
 async def ssh_stream():
     logger = logging.getLogger('websocket')
-    active_process = None  # ✅ Store process reference to stop it later
+    session_id = None  # Unique ID for this WebSocket session
 
     try:
         await websocket.accept()
@@ -26,71 +31,69 @@ async def ssh_stream():
 
         while True:
             data = await websocket.receive_json()
-            logger.debug(f"Received JSON data: {json.dumps(data, indent=2)}")
+            logger.debug(f"Received data: {json.dumps(data, indent=2)}")
 
-            host = data.get("host")
-            username = data.get("username")
-            command = data.get("command")
+            # Phase 1: Authentication
+            if not session_id:
+                if "host" not in data or "username" not in data or "password" not in data:
+                    await websocket.send_json({"error": "Auth required first"})
+                    continue
 
-            if command == "STOP":  # ✅ Handle Stop Signal
-                if active_process:
-                    logger.info("Stopping streaming process...")
-                    active_process.terminate()
-                    active_process = None  # Reset process reference
-                await websocket.send_json({"output": "❌ Streaming stopped."})
-                continue  # Wait for more messages
+                # Create new SSH connection
+                session_id = str(uuid.uuid4())
+                conn = await asyncssh.connect(
+                    host=data["host"],
+                    username=data["username"],
+                    password=data["password"],
+                    known_hosts=None
+                )
+                active_sessions[session_id] = {"conn": conn}
+                await websocket.send_json({"status": "AUTH_SUCCESS", "session_id": session_id})
+                logger.info(f"New session: {session_id}")
+                continue
 
-            if not all([host, username, data.get("password"), command]):
-                await websocket.send_json({"error": "Missing parameters"})
+            # Phase 2: Command Execution (reuse existing connection)
+            session = active_sessions.get(session_id)
+            if not session:
+                await websocket.send_json({"error": "Invalid session"})
                 return
 
+            command = data.get("command")
+            if command == "STOP":
+                if "process" in session:
+                    session["process"].terminate()
+                    del session["process"]
+                await websocket.send_json({"output": "Process stopped"})
+                continue
+
+            # Execute command on existing connection
             safe_command = f"stdbuf -oL {command}"
-            logger.debug(f"Sanitized command: {safe_command}")
+            process = await session["conn"].create_process(safe_command, term_type="xterm")
+            session["process"] = process  # Track active process
 
-            async with asyncssh.connect(
-                host=host, 
-                username=username, 
-                password=data.get("password"), 
-                known_hosts=None
-            ) as conn:
-                logger.info(f"SSH connection established to {host}")
+            async def read_stream(stream, is_error=False):
+                while not stream.at_eof():
+                    line = await stream.readline()
+                    if line:
+                        await websocket.send_json({"output": line.strip(), "error": is_error})
 
-                async with conn.create_process(safe_command, term_type="xterm") as process:
-                    active_process = process  # ✅ Store process reference
+            await asyncio.gather(
+                read_stream(process.stdout),
+                read_stream(process.stderr, is_error=True)
+            )
 
-                    async def read_stdout():
-                        while not process.stdout.at_eof():
-                            line = await process.stdout.readline()
-                            if line:
-                                await websocket.send_json({"output": line.strip()})
-                            else:
-                                break
-
-                    async def read_stderr():
-                        while not process.stderr.at_eof():
-                            error_line = await process.stderr.readline()
-                            if error_line:
-                                await websocket.send_json({"error": error_line.strip()})
-                            else:
-                                break
-
-                    await asyncio.gather(read_stdout(), read_stderr())
-
-    except asyncio.IncompleteReadError:
-        logger.debug("Process terminated with incomplete read")
-    except asyncssh.Error as e:
-        logger.error(f"SSH Connection Failed: {str(e)}")
-        await websocket.send_json({"error": f"SSH Error: {str(e)}"})
     except Exception as e:
-        logger.exception("Unexpected error in WebSocket handler:")
-        await websocket.send_json({"error": f"Server Error: {str(e)}"})
+        logger.error(f"Error: {str(e)}")
+        await websocket.send_json({"error": str(e)})
     finally:
-        if active_process:
-            active_process.terminate()  # ✅ Ensure cleanup
-        await websocket.close(code=1000, reason="Command execution completed")
-        logger.info("WebSocket connection closed")
-
-
+        # Cleanup on disconnect
+        if session_id and session_id in active_sessions:
+            session = active_sessions[session_id]
+            if "process" in session:
+                session["process"].terminate()
+            await session["conn"].close()
+            del active_sessions[session_id]
+        await websocket.close()
 
 @app.route('/ssh', methods=['POST'])
 async def ssh_command():

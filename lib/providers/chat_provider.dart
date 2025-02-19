@@ -317,11 +317,11 @@ class ChatProvider extends ChangeNotifier {
     var chatData = _chats[chatId];
     if (chatData == null) return;
 
+    // ✅ Establish WebSocket connection (without command)
     SSHService().connectToWebSocket(
       host: chatData['host'],
       username: chatData['username'],
       password: chatData['password'],
-      command: command,
       onMessageReceived: (output) {
         addMessage(chatId, output, isUser: false);
       },
@@ -331,6 +331,9 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
       },
     );
+
+    // ✅ Send the actual command separately after connection is established
+    SSHService().sendWebSocketCommand(command);
   }
 
   /// ✅ **Handles running commands in the correct directory**

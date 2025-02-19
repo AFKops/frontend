@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
 
 class SSHService {
   final String apiUrl =
@@ -9,6 +10,7 @@ class SSHService {
       "ws://137.184.69.130:5000/ssh-stream"; // WebSocket for streaming
 
   WebSocketChannel? _channel;
+  bool _isConnected = false;
 
   /// ✅ **Fetch SSH Welcome Message via HTTP (Short Command)**
   Future<String> getSSHWelcomeMessage({
@@ -18,8 +20,6 @@ class SSHService {
   }) async {
     try {
       print("🔵 Sending SSH API request to $apiUrl");
-      print("🟡 Request Data: host=$host, user=$username, command=uptime");
-
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: {"Content-Type": "application/json"},
@@ -31,9 +31,6 @@ class SSHService {
         }),
       );
 
-      print("🟠 Response Status: ${response.statusCode}");
-      print("🟢 Response Body: ${response.body}");
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data["output"] ?? "Connected to $host";
@@ -41,7 +38,6 @@ class SSHService {
         return "❌ SSH API Error: ${response.body}";
       }
     } catch (e) {
-      print("🔴 Error: $e");
       return "❌ SSH API Connection Failed: $e";
     }
   }
@@ -102,70 +98,85 @@ class SSHService {
         String output = data["output"] ?? "";
         List<String> directories = output.trim().split("\n");
 
-        print("📂 Found directories: $directories");
-
         return directories;
       } else {
-        print("❌ SSH API Error: ${response.body}");
         return [];
       }
     } catch (e) {
-      print("🔴 Error fetching directories: $e");
       return [];
     }
   }
 
-  /// ✅ **Connect to WebSocket for Continuous Command Streaming**
+  /// ✅ **Persistent WebSocket Connection for Continuous SSH Streaming**
   void connectToWebSocket({
     required String host,
     required String username,
     required String password,
-    required String command,
     required Function(String) onMessageReceived,
     required Function(String) onError,
   }) {
+    if (_channel != null && _isConnected) {
+      print("🔄 WebSocket is already connected. Reusing connection...");
+      return;
+    }
+
     print("🌐 Connecting to WebSocket: $wsUrl");
 
-    // Open WebSocket Connection
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    _isConnected = true;
 
-    // Send SSH credentials and command
-    final message = jsonEncode({
+    // Send authentication details first
+    final authMessage = jsonEncode({
       "host": host,
       "username": username,
       "password": password,
-      "command": command,
     });
 
-    print("📤 Sending SSH Data: $message");
-    _channel?.sink.add(message);
+    print("📤 Sending SSH Authentication: $authMessage");
+    _channel?.sink.add(authMessage);
 
     // Listen for real-time responses
     _channel?.stream.listen(
       (message) {
         final data = jsonDecode(message);
         if (data['output'] != null) {
-          print("🟢 Received Output: ${data['output']}");
           onMessageReceived(data['output']);
         } else if (data['error'] != null) {
-          print("🔴 Received Error: ${data['error']}");
           onError(data['error']);
         }
       },
       onError: (error) {
         print("⚠️ WebSocket Error: $error");
+        _isConnected = false;
         onError('WebSocket error: $error');
       },
       onDone: () {
         print("🔻 WebSocket connection closed.");
+        _isConnected = false;
         onError('WebSocket connection closed');
       },
     );
   }
 
+  /// ✅ **Send Commands Over WebSocket (Instead of Opening New Connections)**
+  void sendWebSocketCommand(String command) {
+    if (_channel == null || !_isConnected) {
+      print("❌ WebSocket is not connected. Please connect first.");
+      return;
+    }
+
+    final commandMessage = jsonEncode({"command": command});
+    print("📤 Sending SSH Command: $commandMessage");
+    _channel?.sink.add(commandMessage);
+  }
+
   /// ✅ **Close WebSocket Connection (To Stop Streaming)**
   void closeWebSocket() {
-    _channel?.sink.close();
-    print("🔻 WebSocket Closed.");
+    if (_channel != null) {
+      _channel?.sink.close(status.goingAway);
+      print("🔻 WebSocket Closed.");
+      _channel = null;
+      _isConnected = false;
+    }
   }
 }
