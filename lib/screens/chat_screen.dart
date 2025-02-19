@@ -4,6 +4,7 @@ import '../providers/chat_provider.dart';
 import 'package:flutter/services.dart';
 import 'home_screen.dart';
 import '../providers/theme_provider.dart';
+import '../services/ssh_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -49,13 +50,14 @@ class _ChatScreenState extends State<ChatScreen> {
               .updateFileSuggestions(widget.chatId, query: query);
 
           setState(() {
+            // Re-fetch the new suggestions from the updated chat data
             _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
                     .chats[widget.chatId]?['fileSuggestions'] ??
                 [];
           });
 
-          // ✅ If user hasn't typed "/", filter from current directory
           if (!query.contains("/")) {
+            // Filter from the top-level suggestions
             List<String> matches = _fileSuggestions
                 .where((file) => file.startsWith(query))
                 .toList();
@@ -65,9 +67,10 @@ class _ChatScreenState extends State<ChatScreen> {
               _showTagPopup = _filteredSuggestions.isNotEmpty;
             });
           } else {
-            // ✅ If user has typed "/", filter from deeper directory
+            // If user typed "/", filter from deeper directory
+            String lastPart = query.split("/").last;
             List<String> matches = _fileSuggestions
-                .where((file) => file.startsWith(query.split("/").last))
+                .where((file) => file.startsWith(lastPart))
                 .toList();
 
             setState(() {
@@ -102,9 +105,9 @@ class _ChatScreenState extends State<ChatScreen> {
           _scrollController.position.maxScrollExtent,
           duration: immediate
               ? const Duration(
-                  milliseconds: 100) // ✅ Fast scroll for sent messages
+                  milliseconds: 100) // fast scroll for sent messages
               : const Duration(
-                  milliseconds: 300), // ✅ Smooth scroll for responses
+                  milliseconds: 300), // smooth scroll for responses
           curve: Curves.easeOut,
         );
       }
@@ -115,7 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final lastMessage = chatProvider.getMessages(widget.chatId).lastOrNull;
 
-    // ✅ Don't show "..." if it's a streaming command!
+    // Don't show "..." if it's a streaming command
     if (lastMessage != null &&
         chatProvider.isStreamingCommand(lastMessage['text'])) {
       return;
@@ -137,32 +140,32 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (message.isEmpty) return;
 
-    // ✅ Stop existing streaming if a new command is sent
+    // Stop existing streaming if a new command is sent
     if (chatProvider.isStreaming(widget.chatId)) {
       chatProvider.stopStreaming(widget.chatId);
     }
 
     chatProvider.addMessage(widget.chatId, message, isUser: true);
     _startTypingIndicator();
-    _scrollToBottom(immediate: true); // ✅ Fast scroll when sending a message
+    _scrollToBottom(immediate: true);
 
     try {
-      // ✅ Check if the command is a streaming command
+      // If the command is a "streaming" command
       if (chatProvider.isStreamingCommand(message)) {
         chatProvider.startStreaming(widget.chatId, message);
       } else {
-        // ✅ Regular command handling (via HTTP API)
+        // normal ephemeral command
         String response =
             await chatProvider.sendCommand(widget.chatId, message);
 
         setState(() {
-          // ✅ If "cd" command, update suggestions; otherwise, clear popup
+          // If "cd" command, update suggestions; otherwise, clear popup
           if (message.startsWith("cd ")) {
             chatProvider.updateFileSuggestions(widget.chatId);
             _fileSuggestions =
                 chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
           } else {
-            _filteredSuggestions.clear(); // ✅ Hide popup for non-cd commands
+            _filteredSuggestions.clear();
             _showTagPopup = false;
           }
         });
@@ -172,7 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       Future.delayed(const Duration(milliseconds: 100), () {
-        _scrollToBottom(); // ✅ Smooth scroll when response arrives
+        _scrollToBottom();
       });
     } catch (e) {
       _stopTypingIndicator();
@@ -181,7 +184,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// **Displays a Popup with Directory Contents**
   void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
@@ -210,9 +212,7 @@ class _ChatScreenState extends State<ChatScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
-      color: isDarkMode
-          ? const Color(0xFF1E1E1E) // ✅ Dark mode background
-          : Colors.white, // ✅ Light mode background
+      color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
       items: [
         if (Provider.of<ChatProvider>(context, listen: false)
             .canGoBack(widget.chatId))
@@ -236,9 +236,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(
                     fontSize: 14,
                     fontFamily: "monospace",
-                    color: isDarkMode
-                        ? Colors.white // ✅ White text in dark mode
-                        : Colors.black54, // ✅ Black text in light mode
+                    color: isDarkMode ? Colors.white : Colors.black54,
                   ),
                 ),
               ],
@@ -256,9 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
               style: TextStyle(
                 fontSize: 14,
                 fontFamily: "monospace",
-                color: isDarkMode
-                    ? Colors.white // ✅ White text for dark mode
-                    : Colors.black87, // ✅ Black text for light mode
+                color: isDarkMode ? Colors.white : Colors.black87,
               ),
             ),
           );
@@ -277,32 +273,32 @@ class _ChatScreenState extends State<ChatScreen> {
     final isConnected = chatProvider.isChatActive(widget.chatId);
 
     return Scaffold(
-      backgroundColor: isDarkMode
-          ? const Color(0xFF0D0D0D)
-          : Colors.white, // ✅ Dynamic Background
+      backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
       appBar: AppBar(
         title: Text(chatName, style: const TextStyle(fontSize: 18)),
-        backgroundColor: isDarkMode
-            ? const Color(0xFF0D0D0D)
-            : Colors.white, // ✅ Dynamic AppBar Color
+        backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
         iconTheme:
             IconThemeData(color: isDarkMode ? Colors.white : Colors.black),
         actions: [
           IconButton(
-            icon: Icon(isConnected ? Icons.check_circle : Icons.cancel,
-                color: isConnected ? Colors.green : Colors.grey),
+            icon: Icon(
+              isConnected ? Icons.check_circle : Icons.cancel,
+              color: isConnected ? Colors.green : Colors.grey,
+            ),
             onPressed: () {},
           ),
           IconButton(
-            key: _directoryButtonKey, // ✅ Assign the key
+            key: _directoryButtonKey,
             icon: const Icon(Icons.folder_open),
             onPressed: () =>
                 _showDirectoryDropdown(context, _directoryButtonKey),
           ),
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (context) => const HomeScreen())),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+            ),
           ),
         ],
       ),
@@ -323,7 +319,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final message = messages[index];
                     final bool isUserMessage = message['isUser'] ?? false;
 
-                    // ✅ If this is the last message and it's streaming, mark it
+                    // If this is the last message and it's streaming, mark it
                     bool isStreaming =
                         chatProvider.isStreaming(widget.chatId) &&
                             index == messages.length - 1;
@@ -336,8 +332,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         message['text'],
                         isUserMessage,
                         isStreaming: isStreaming,
-                        chatId: widget.chatId, // ✅ Pass chatId
-                        index: index, // ✅ FIX: Pass the index
+                        chatId: widget.chatId,
+                        index: index,
                       ),
                     );
                   },
@@ -347,7 +343,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
 
-          // ✅ Auto-suggestion Popup (ONLY SHOW WHEN THERE ARE SUGGESTIONS)
+          // Auto-suggestion Popup
           if (_filteredSuggestions.isNotEmpty) _tagPopup(),
 
           if (!_isAtBottom)
@@ -377,18 +373,18 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: TextField(
               controller: _messageController,
-              autocorrect: false, // ✅ Disable auto-correct
+              autocorrect: false,
               style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
               decoration: InputDecoration(
                 hintText: "Type a command...",
                 hintStyle: TextStyle(
-                    color: isDarkMode ? Colors.white54 : Colors.black54),
+                  color: isDarkMode ? Colors.white54 : Colors.black54,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25.0),
                   borderSide: BorderSide(
-                      color: isDarkMode
-                          ? Colors.white38
-                          : Colors.black26), // ✅ Thin border
+                    color: isDarkMode ? Colors.white38 : Colors.black26,
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25.0),
@@ -398,17 +394,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25.0),
                   borderSide: BorderSide(
-                      color: isDarkMode
-                          ? Colors.white
-                          : Colors.black), // ✅ White focus border
+                      color: isDarkMode ? Colors.white : Colors.black),
                 ),
                 filled: true,
-                fillColor: Colors.transparent, // ✅ Transparent BG
+                fillColor: Colors.transparent,
                 prefixIcon: Provider.of<ChatProvider>(context, listen: true)
                         .canGoBack(widget.chatId)
                     ? IconButton(
-                        icon: Icon(Icons.arrow_back,
-                            color: isDarkMode ? Colors.white : Colors.black),
+                        icon: Icon(
+                          Icons.arrow_back,
+                          color: isDarkMode ? Colors.white : Colors.black,
+                        ),
                         onPressed: () {
                           Provider.of<ChatProvider>(context, listen: false)
                               .goBackDirectory(widget.chatId);
@@ -418,15 +414,15 @@ class _ChatScreenState extends State<ChatScreen> {
                           _sendMessage();
                         },
                       )
-                    : null, // ✅ Show only when needed
+                    : null,
               ),
             ),
           ),
           IconButton(
-            icon: Icon(Icons.send,
-                color: isDarkMode
-                    ? Colors.white
-                    : Colors.black), // ✅ White for dark mode
+            icon: Icon(
+              Icons.send,
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
             onPressed: _sendMessage,
           ),
         ],
@@ -446,10 +442,9 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Material(
         color: Colors.transparent,
         child: Container(
-          width: MediaQuery.of(context).size.width -
-              30, // ✅ Ensure it fits within screen width
+          width: MediaQuery.of(context).size.width - 30,
           child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal, // ✅ Horizontal scroll enabled
+            scrollDirection: Axis.horizontal,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: _filteredSuggestions.map((dir) {
@@ -463,10 +458,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         List<String> parts = currentText.split(" ");
                         if (parts.length > 1) {
                           List<String> pathParts = parts[1].split("/");
-                          pathParts
-                              .removeLast(); // ✅ Remove incomplete directory
-                          pathParts
-                              .add(selectedDir); // ✅ Add full directory name
+                          pathParts.removeLast();
+                          pathParts.add(selectedDir);
                           _messageController.text = "cd " + pathParts.join("/");
                         } else {
                           _messageController.text = "cd $selectedDir";
@@ -476,8 +469,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
 
                       _filteredSuggestions.clear();
-                      _showTagPopup =
-                          false; // ✅ Hide pop-up after selecting a directory
+                      _showTagPopup = false;
                     });
                   },
                   child: Container(
@@ -514,10 +506,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
     final chatProvider = Provider.of<ChatProvider>(context);
+    final messages = chatProvider.getMessages(chatId);
+
+    // ADDED CODE: check ephemeral inProgress
+    final chatData = chatProvider.chats[chatId];
+    final bool inProgress = (chatData?['inProgress'] == true);
+
+    final isLastMessage = (index == messages.length - 1);
 
     return GestureDetector(
       onLongPress: () {
-        Clipboard.setData(ClipboardData(text: text)); // ✅ Copy to clipboard
+        Clipboard.setData(ClipboardData(text: text));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Copied to clipboard'),
@@ -547,17 +546,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 color: isDarkMode ? Colors.white70 : Colors.black87,
               ),
             ),
-            if (isStreaming &&
-                index ==
-                    chatProvider.getMessages(chatId).length -
-                        1) // ✅ Only last streaming message
+
+            // ADDED CODE: unify ephemeral "inProgress" + streaming in the last message
+            if (isLastMessage && !isUserMessage && (isStreaming || inProgress))
               Padding(
                 padding: const EdgeInsets.only(top: 5),
                 child: Row(
                   children: [
-                    const Text(
-                      "Streaming...",
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    Text(
+                      isStreaming ? "Streaming..." : "In progress...",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     const SizedBox(width: 5),
                     SizedBox(
@@ -571,10 +569,23 @@ class _ChatScreenState extends State<ChatScreen> {
                     const Spacer(),
                     ElevatedButton(
                       onPressed: () {
-                        chatProvider.stopStreaming(chatId);
+                        if (isStreaming) {
+                          chatProvider.stopStreaming(chatId);
+                        } else {
+                          // ephemeral => forcibly stop
+                          final ssh = chatData?['service'] as SSHService?;
+                          ssh?.stopCurrentProcess();
+                          chatData?['inProgress'] = false;
+                          chatProvider.addMessage(
+                            chatId,
+                            "❌ Command cancelled.",
+                            isUser: false,
+                          );
+                          chatProvider.notifyListeners();
+                        }
                         Future.delayed(const Duration(milliseconds: 200), () {
                           if (mounted) {
-                            setState(() {}); // ✅ Refresh UI when stopped
+                            setState(() {});
                           }
                         });
                       },
@@ -586,9 +597,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text(
-                        "🛑 Stop Streaming",
-                        style: TextStyle(fontSize: 12, color: Colors.white),
+                      child: Text(
+                        "🛑 Stop ${isStreaming ? "Streaming" : "Command"}",
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.white),
                       ),
                     ),
                   ],
@@ -601,7 +613,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-/// ✅ Messenger-style animated typing indicator
 class _TypingIndicator extends StatefulWidget {
   const _TypingIndicator();
 
@@ -647,9 +658,7 @@ class _TypingIndicatorState extends State<_TypingIndicator>
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: isDarkMode
-                        ? Colors.white // ✅ White in dark mode
-                        : Colors.black, // ✅ Black in light mode
+                    color: isDarkMode ? Colors.white : Colors.black,
                   ),
                 ),
               );
