@@ -1,113 +1,21 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 
+/// Manages a single persistent WebSocket connection to your Python /ssh-stream.
+/// All commands (CONNECT, RUN_COMMAND, LIST_FILES, STOP) go through this.
 class SSHService {
-  final String apiUrl =
-      "http://137.184.69.130:5000/ssh"; // HTTP for short commands
-  final String wsUrl =
-      "ws://137.184.69.130:5000/ssh-stream"; // WebSocket for streaming
+  final String wsUrl = "ws://137.184.69.130:5000/ssh-stream";
 
   WebSocketChannel? _channel;
   bool _isConnected = false;
 
-  /// ✅ **Fetch SSH Welcome Message via HTTP (Short Command)**
-  Future<String> getSSHWelcomeMessage({
-    required String host,
-    required String username,
-    required String password,
-  }) async {
-    try {
-      print("🔵 Sending SSH API request to $apiUrl");
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "host": host,
-          "username": username,
-          "password": password,
-          "command": "uptime",
-        }),
-      );
+  /// We store callbacks so the caller can receive line-by-line output or errors.
+  Function(String)? onMessageReceived;
+  Function(String)? onError;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data["output"] ?? "Connected to $host";
-      } else {
-        return "❌ SSH API Error: ${response.body}";
-      }
-    } catch (e) {
-      return "❌ SSH API Connection Failed: $e";
-    }
-  }
-
-  /// ✅ **Execute SSH Command via HTTP (For Quick Commands)**
-  Future<String> executeCommand({
-    required String host,
-    required String username,
-    required String password,
-    required String command,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "host": host,
-          "username": username,
-          "password": password.isNotEmpty ? password : "default_placeholder",
-          "command": command,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data["output"] ?? "No output received";
-      } else {
-        return "❌ SSH API Error: ${response.body}";
-      }
-    } catch (e) {
-      return "❌ SSH API Connection Failed: $e";
-    }
-  }
-
-  /// ✅ **List Only Directories via HTTP (For cd Autocomplete)**
-  Future<List<String>> listFiles({
-    required String host,
-    required String username,
-    required String password,
-    String directory = ".",
-  }) async {
-    try {
-      print("📂 Fetching directory list from: $directory");
-
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "host": host,
-          "username": username,
-          "password": password,
-          "command": 'ls -p "$directory" | grep "/\$"',
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String output = data["output"] ?? "";
-        List<String> directories = output.trim().split("\n");
-
-        return directories;
-      } else {
-        return [];
-      }
-    } catch (e) {
-      return [];
-    }
-  }
-
-  /// ✅ **Persistent WebSocket Connection for Continuous SSH Streaming**
+  /// Connect to the WebSocket with action=CONNECT.
+  /// If already connected, we reuse the connection.
   void connectToWebSocket({
     required String host,
     required String username,
@@ -115,34 +23,53 @@ class SSHService {
     required Function(String) onMessageReceived,
     required Function(String) onError,
   }) {
+    // If we already have a channel & are connected, do nothing
     if (_channel != null && _isConnected) {
       print("🔄 WebSocket is already connected. Reusing connection...");
       return;
     }
 
     print("🌐 Connecting to WebSocket: $wsUrl");
+    this.onMessageReceived = onMessageReceived;
+    this.onError = onError;
 
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     _isConnected = true;
 
-    // Send authentication details first
-    final authMessage = jsonEncode({
+    // 1) Send the CONNECT action
+    final connectMsg = {
+      "action": "CONNECT",
       "host": host,
       "username": username,
       "password": password,
-    });
+    };
+    print("📤 Sending CONNECT action: $connectMsg");
+    _channel?.sink.add(jsonEncode(connectMsg));
 
-    print("📤 Sending SSH Authentication: $authMessage");
-    _channel?.sink.add(authMessage);
-
-    // Listen for real-time responses
+    // 2) Listen for server messages
     _channel?.stream.listen(
-      (message) {
-        final data = jsonDecode(message);
+      (rawMessage) {
+        final data = jsonDecode(rawMessage);
+
+        // Output lines from commands
         if (data['output'] != null) {
-          onMessageReceived(data['output']);
-        } else if (data['error'] != null) {
-          onError(data['error']);
+          onMessageReceived(data['output'].toString());
+        }
+        // SSH/Server error
+        else if (data['error'] != null) {
+          onError(data['error'].toString());
+        }
+        // Info messages
+        else if (data['info'] != null) {
+          onMessageReceived(data['info'].toString());
+        }
+        // Directory listing
+        else if (data['directories'] != null) {
+          // We can pass them back as JSON or parse them further
+          final dirs = data['directories'] as List;
+          // For convenience, send them as a JSON string.
+          // ChatProvider can parse if needed.
+          onMessageReceived(jsonEncode({"directories": dirs}));
         }
       },
       onError: (error) {
@@ -158,19 +85,49 @@ class SSHService {
     );
   }
 
-  /// ✅ **Send Commands Over WebSocket (Instead of Opening New Connections)**
+  /// Send a normal command (RUN_COMMAND).
+  /// The server will respond with line-by-line output in onMessageReceived.
   void sendWebSocketCommand(String command) {
     if (_channel == null || !_isConnected) {
-      print("❌ WebSocket is not connected. Please connect first.");
+      print("❌ Not connected. Please connect first.");
       return;
     }
-
-    final commandMessage = jsonEncode({"command": command});
-    print("📤 Sending SSH Command: $commandMessage");
-    _channel?.sink.add(commandMessage);
+    final msg = {
+      "action": "RUN_COMMAND",
+      "command": command,
+    };
+    print("📤 Sending RUN_COMMAND: $msg");
+    _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// ✅ **Close WebSocket Connection (To Stop Streaming)**
+  /// Request a directory listing from the server (LIST_FILES).
+  /// The server responds with {"directories": [...]} in onMessageReceived.
+  void listFiles(String directory) {
+    if (_channel == null || !_isConnected) {
+      print("❌ Not connected. Please connect first.");
+      return;
+    }
+    final msg = {
+      "action": "LIST_FILES",
+      "directory": directory,
+    };
+    print("📤 Sending LIST_FILES: $msg");
+    _channel?.sink.add(jsonEncode(msg));
+  }
+
+  /// Stop any currently running/streaming process without closing the SSH session.
+  void stopCurrentProcess() {
+    if (_channel == null || !_isConnected) {
+      print("❌ Not connected. Please connect first.");
+      return;
+    }
+    final msg = {"action": "STOP"};
+    print("📤 Sending STOP action");
+    _channel?.sink.add(jsonEncode(msg));
+  }
+
+  /// Close the SSH WebSocket entirely.
+  /// Next time you want to run a command, call connectToWebSocket() again.
   void closeWebSocket() {
     if (_channel != null) {
       _channel?.sink.close(status.goingAway);
