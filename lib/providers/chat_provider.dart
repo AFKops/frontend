@@ -308,36 +308,21 @@ class ChatProvider extends ChangeNotifier {
     }
 
     if (isStreamingCommand(command)) {
+      chatData['inProgress'] = true; // ✅ Only mark long-running commands
+      notifyListeners();
       startStreaming(chatId, command);
       return "📡 Streaming started...";
     }
 
-    // ADDED CODE: Mark ephemeral commands as "inProgress"
-    chatData['inProgress'] = true;
-    notifyListeners();
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) {
-      final err = "❌ No SSHService found. Cannot run command.";
-      addMessage(chatId, err, isUser: false);
-      // Clear inProgress
-      chatData['inProgress'] = false;
-      notifyListeners();
-      return err;
+      return "❌ No SSHService found!";
     }
 
     final fullCmd = "cd $currentDir && $command";
     ssh.sendWebSocketCommand(fullCmd);
 
-    // ADDED CODE: naive approach => after 2s, set inProgress=false
-    Future.delayed(const Duration(seconds: 2), () {
-      if (_chats[chatId] != null) {
-        _chats[chatId]!['inProgress'] = false;
-        notifyListeners();
-      }
-    });
-
-    return "✔ Command sent: $fullCmd";
+    return "";
   }
 
   Future<String> _handleDirectoryChange(
@@ -461,21 +446,35 @@ class ChatProvider extends ChangeNotifier {
 
   // ADDED CODE: parse server output for "directories"
   void _handleServerOutput(String chatId, String rawOutput) {
-    // 1) Attempt to parse as JSON
     try {
       final parsed = jsonDecode(rawOutput);
       if (parsed is Map && parsed.containsKey("directories")) {
-        // It's a directory listing
-        final dirs = List<String>.from(parsed["directories"]);
-        _chats[chatId]?['fileSuggestions'] = dirs;
+        _chats[chatId]?['fileSuggestions'] =
+            List<String>.from(parsed["directories"]);
         notifyListeners();
-        return; // We can skip adding it as a normal message
+        return;
       }
     } catch (_) {
-      // Not valid JSON, so fallback
+      // Not JSON, process as normal output
     }
 
-    // 2) If not a "directories" JSON, treat as normal text
-    addMessage(chatId, rawOutput, isUser: false);
+    // If it's part of an existing command's output, append instead of creating a new bubble
+    final chatData = _chats[chatId];
+    if (chatData == null) return;
+
+    if (chatData.containsKey('lastCommandOutput')) {
+      chatData['lastCommandOutput'] += "\n" + rawOutput;
+    } else {
+      chatData['lastCommandOutput'] = rawOutput;
+    }
+
+    // Set a delay before confirming command completion (to group lines)
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (chatData.containsKey('lastCommandOutput')) {
+        addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
+        chatData.remove('lastCommandOutput'); // Clear after displaying
+        notifyListeners();
+      }
+    });
   }
 }
