@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
-
+import 'dart:async';
 import '../services/ssh_service.dart';
+
+Timer? _debounce;
 
 class ChatProvider extends ChangeNotifier {
   Map<String, Map<String, dynamic>> _chats = {};
@@ -225,20 +227,36 @@ class ChatProvider extends ChangeNotifier {
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
 
-    final currentDir = chatData['currentDirectory'] ?? "/root";
-    String directoryToQuery = currentDir;
+    // Cancel any previous debounce timer
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      String targetDir = chatData['currentDirectory'] ?? "/";
 
-    if (query != null && query.isNotEmpty) {
-      final parts = query.split("/");
-      if (parts.length == 1) {
-        directoryToQuery = currentDir;
-      } else {
-        final partialPath = parts.sublist(0, parts.length - 1).join("/");
-        directoryToQuery = "$currentDir/$partialPath";
+      if (query != null && query.isNotEmpty) {
+        if (query.startsWith("/")) {
+          // Absolute path case
+          targetDir = query;
+        } else {
+          // Relative path case: Append query to current directory
+          targetDir = "$targetDir/$query";
+        }
       }
-    }
 
-    ssh.listFiles(directoryToQuery);
+      // Ensure targetDir is valid and remove any double slashes
+      targetDir = targetDir.replaceAll("//", "/");
+
+      // Extract only the **last full directory** for listing
+      List<String> parts = targetDir.split("/");
+      parts.removeWhere((e) => e.isEmpty);
+
+      if (parts.isNotEmpty) {
+        targetDir = "/${parts.join("/")}";
+        print("📤 Sending LIST_FILES: $targetDir");
+        ssh.listFiles(targetDir);
+      } else {
+        print("⚠️ No valid directory found to list.");
+      }
+    });
   }
 
   // --------------------------------------------------------------------------
