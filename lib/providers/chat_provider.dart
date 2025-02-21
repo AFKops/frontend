@@ -287,7 +287,7 @@ class ChatProvider extends ChangeNotifier {
   // --------------------------------------------------------------------------
   // SEND COMMAND
   // --------------------------------------------------------------------------
-  Future<String> sendCommand(String chatId, String command) async {
+  Future<String?> sendCommand(String chatId, String command) async {
     final chatData = _chats[chatId];
     if (chatData == null) return "❌ Chat session not found!";
 
@@ -322,7 +322,7 @@ class ChatProvider extends ChangeNotifier {
     final fullCmd = "cd $currentDir && $command";
     ssh.sendWebSocketCommand(fullCmd);
 
-    return "";
+    return null; // ✅ Instead of an empty string, return `null` to avoid blank messages
   }
 
   Future<String> _handleDirectoryChange(
@@ -458,7 +458,6 @@ class ChatProvider extends ChangeNotifier {
       // Not JSON, process as normal output
     }
 
-    // If it's part of an existing command's output, append instead of creating a new bubble
     final chatData = _chats[chatId];
     if (chatData == null) return;
 
@@ -468,12 +467,12 @@ class ChatProvider extends ChangeNotifier {
       chatData['lastCommandOutput'] = rawOutput;
     }
 
-    // Set a delay before confirming command completion (to group lines)
-    Future.delayed(const Duration(milliseconds: 200), () {
+    // ✅ Delay ensures we group command outputs together before scrolling
+    Future.delayed(const Duration(milliseconds: 100), () {
       if (chatData.containsKey('lastCommandOutput')) {
         addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
         chatData.remove('lastCommandOutput'); // Clear after displaying
-        notifyListeners();
+        notifyListeners(); // ✅ Trigger UI update
       }
     });
   }

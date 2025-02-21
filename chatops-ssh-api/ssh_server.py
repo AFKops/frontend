@@ -4,6 +4,8 @@ import logging
 import asyncio
 import json
 import uuid
+import re
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -34,12 +36,14 @@ async def ssh_stream():
 
         # Background task to read from the bash process
         async def read_bash(proc):
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             try:
                 while not proc.stdout.at_eof():
                     line = await proc.stdout.readline()
-                    if line:
-                        # send each line to the client
-                        await websocket.send_json({"output": line.rstrip("\n")})
+                if line:
+                    # Remove ANSI codes before sending to WebSocket
+                    clean_line = ansi_escape.sub('', line.rstrip("\n"))
+                    await websocket.send_json({"output": clean_line})  
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] read_bash cancelled.")
             except Exception as e:
@@ -70,7 +74,6 @@ async def ssh_stream():
                     await websocket.send_json({"info": "Already connected, reusing session"})
                     continue
 
-                # Connect once
                 try:
                     logger.info(f"[{session_id}] Connecting to {host} as {username}...")
                     conn = await asyncssh.connect(
@@ -81,10 +84,13 @@ async def ssh_stream():
                     )
                     session["conn"] = conn
 
-                    # Start interactive Bash
-                    # try removing '-i' or using '/bin/bash' if no output
-                    logger.info(f"[{session_id}] Starting interactive bash -i ...")
-                    proc = await conn.create_process("bash -i")  
+                    # Request a PTY for the interactive shell
+                    logger.info(f"[{session_id}] Starting interactive bash -i with PTY ...")
+                    proc = await conn.create_process(
+                        "bash -i",
+                        term_type="xterm",
+                        term_size=(120, 40)
+                    )
                     session["proc"] = proc
 
                     # Start reading output in background
@@ -92,7 +98,7 @@ async def ssh_stream():
                     session["read_task"] = read_task
 
                     await websocket.send_json({"info": "Interactive Bash session started."})
-                    logger.info(f"[{session_id}] Connected + interactive Bash ready.")
+                    logger.info(f"[{session_id}] Connected + interactive Bash ready with PTY.")
 
                 except asyncssh.Error as e:
                     logger.error(f"[{session_id}] SSH Error: {str(e)}")
@@ -114,7 +120,7 @@ async def ssh_stream():
                 logger.info(f"[{session_id}] RUN_COMMAND: {cmd}")
 
                 try:
-                    # Write the command + newline to the bash shell
+                    # Write the command + newline to the shell
                     session["proc"].stdin.write(cmd + "\n")
                 except Exception as e:
                     logger.exception(f"[{session_id}] Error writing command:")
@@ -135,7 +141,6 @@ async def ssh_stream():
 
             # --------------------------------------------------------
             # LIST_FILES
-            # (Ephemeral or we could just do "ls -p 'dir' | grep '/$'" inside the shell)
             # --------------------------------------------------------
             elif action == "LIST_FILES":
                 if session["conn"] is None:
@@ -217,4 +222,3 @@ if __name__ == "__main__":
         logger.info("🔻 Server shutdown requested")
     except Exception as e:
         logger.critical(f"🔥 Server crashed: {str(e)}")
-

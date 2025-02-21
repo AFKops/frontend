@@ -25,9 +25,21 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAtBottom = true;
   List<String> _fileSuggestions = []; // Stores the suggested files
 
+  // Controlling the flow
+  bool _isUserInteracting = false; // 🔥 NEW: Detects user interaction
+
   void _updateStreamingMessages() {
     if (!mounted) return;
-    setState(() {});
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    // ✅ Scroll automatically whenever a new message is added
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!_isUserInteracting) {
+        _scrollToBottom(force: true);
+      }
+    });
+
+    setState(() {}); // ✅ Ensure UI updates
   }
 
   @override
@@ -89,27 +101,37 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.hasClients &&
-        _scrollController.offset >=
-            _scrollController.position.maxScrollExtent - 50) {
-      setState(() => _isAtBottom = true);
-    } else {
-      setState(() => _isAtBottom = false);
+    if (_scrollController.hasClients) {
+      double maxScroll = _scrollController.position.maxScrollExtent;
+      double currentScroll = _scrollController.offset;
+
+      // ✅ Detect when user manually scrolls up
+      if (currentScroll < maxScroll - 50) {
+        _isUserInteracting = true;
+      } else {
+        _isUserInteracting = false; // ✅ User is at the bottom
+      }
     }
   }
 
-  void _scrollToBottom({bool immediate = false}) {
+  void _scrollToBottom({bool immediate = false, bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: immediate
-              ? const Duration(
-                  milliseconds: 100) // fast scroll for sent messages
-              : const Duration(
-                  milliseconds: 300), // smooth scroll for responses
-          curve: Curves.easeOut,
-        );
+        // ✅ Only scroll if user hasn’t manually interacted OR force is true
+        if (force || !_isUserInteracting) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: immediate
+                ? const Duration(
+                    milliseconds: 100) // fast scroll for sent messages
+                : const Duration(
+                    milliseconds: 300), // smooth scroll for responses
+            curve: Curves.easeOut,
+          );
+
+          // ✅ Reset user interaction flag after scroll to resume auto-scrolling
+          _isUserInteracting = false;
+        }
       }
     });
   }
@@ -140,26 +162,29 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (message.isEmpty) return;
 
-    // Stop existing streaming if a new command is sent
+    // ✅ Stop existing streaming if a new command is sent
     if (chatProvider.isStreaming(widget.chatId)) {
       chatProvider.stopStreaming(widget.chatId);
     }
 
     chatProvider.addMessage(widget.chatId, message, isUser: true);
     _startTypingIndicator();
-    _scrollToBottom(immediate: true);
+    _scrollToBottom(immediate: true); // ✅ Scroll immediately
 
     try {
-      // If the command is a "streaming" command
+      // ✅ Handle streaming commands separately
       if (chatProvider.isStreamingCommand(message)) {
         chatProvider.startStreaming(widget.chatId, message);
+
+        // ✅ Start auto-scrolling for streaming commands
+        _startAutoScroll();
       } else {
-        // normal ephemeral command
-        String response =
+        // Normal ephemeral command
+        String? response =
             await chatProvider.sendCommand(widget.chatId, message);
 
         setState(() {
-          // If "cd" command, update suggestions; otherwise, clear popup
+          // ✅ Handle `cd` command separately
           if (message.startsWith("cd ")) {
             chatProvider.updateFileSuggestions(widget.chatId);
             _fileSuggestions =
@@ -171,16 +196,32 @@ class _ChatScreenState extends State<ChatScreen> {
         });
 
         _stopTypingIndicator();
-        chatProvider.addMessage(widget.chatId, response, isUser: false);
-      }
 
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _scrollToBottom();
-      });
+        // ✅ Only add a message if response is not null or empty
+        if (response != null && response.isNotEmpty) {
+          chatProvider.addMessage(widget.chatId, response, isUser: false);
+        }
+
+        // ✅ Normal scroll after command output
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _scrollToBottom();
+        });
+      }
     } catch (e) {
       _stopTypingIndicator();
       chatProvider.addMessage(widget.chatId, "❌ SSH Error: $e", isUser: false);
       _scrollToBottom();
+    }
+  }
+
+  void _startAutoScroll() {
+    if (!_isUserInteracting) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && !_isUserInteracting) {
+          _scrollToBottom(force: true);
+          _startAutoScroll(); // Keep scrolling if user hasn't interacted
+        }
+      });
     }
   }
 
