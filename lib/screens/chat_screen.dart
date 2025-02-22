@@ -279,36 +279,28 @@ class _ChatScreenState extends State<ChatScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
       items: [
-        if (chatProvider.canGoBack(widget.chatId))
-          PopupMenuItem(
-            onTap: () {
-              // ✅ Get the correct absolute parent directory
-              final previousDir =
-                  chatProvider.getParentDirectory(widget.chatId);
-
-              // ✅ Update the stored path first
-              chatProvider.goBackDirectory(widget.chatId);
-
-              // ✅ Send the command correctly
-              chatProvider.sendCommand(widget.chatId, "cd $previousDir",
-                  silent: true);
-            },
-            child: Row(
-              children: [
-                Icon(Icons.arrow_back,
-                    size: 16,
-                    color: isDarkMode ? Colors.white54 : Colors.black54),
-                const SizedBox(width: 5),
-                Text(
-                  "Go Back",
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontFamily: "monospace",
-                      color: isDarkMode ? Colors.white : Colors.black54),
-                ),
-              ],
-            ),
+        PopupMenuItem(
+          onTap: () {
+            // ✅ Just send `cd .. && pwd` instead of tracking directories manually
+            chatProvider.sendCommand(widget.chatId, "cd .. && pwd",
+                silent: true);
+          },
+          child: Row(
+            children: [
+              Icon(Icons.arrow_back,
+                  size: 16,
+                  color: isDarkMode ? Colors.white54 : Colors.black54),
+              const SizedBox(width: 5),
+              Text(
+                "Go Back",
+                style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: "monospace",
+                    color: isDarkMode ? Colors.white : Colors.black54),
+              ),
+            ],
           ),
+        ),
         ..._fileSuggestions.map((dir) {
           return PopupMenuItem(
             onTap: () {
@@ -458,6 +450,17 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.all(10.0),
       child: Row(
         children: [
+          // ✅ Always show back button (since Bash tracks paths)
+          IconButton(
+            icon: Icon(
+              Icons.arrow_back,
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
+            onPressed: () {
+              chatProvider.sendCommand(widget.chatId, "cd ..", silent: true);
+            },
+          ),
+
           Expanded(
             child: TextField(
               controller: _messageController,
@@ -486,17 +489,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 filled: true,
                 fillColor: Colors.transparent,
-                prefixIcon: chatProvider.canGoBack(widget.chatId)
-                    ? IconButton(
-                        icon: Icon(
-                          Icons.arrow_back,
-                          color: isDarkMode ? Colors.white : Colors.black,
-                        ),
-                        onPressed: () {
-                          chatProvider.goBackDirectory(widget.chatId);
-                        },
-                      )
-                    : null,
               ),
               onTap: () {
                 // If user taps the input box, we can forcibly scroll to bottom
@@ -504,6 +496,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+
           IconButton(
             icon: Icon(
               Icons.send,

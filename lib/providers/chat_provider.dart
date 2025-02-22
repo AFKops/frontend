@@ -24,21 +24,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> goBackOneDirectory(String chatId) async {
-    String currentPath = getCurrentPath(chatId);
-
-    // Prevent going beyond root
-    if (currentPath == "/" || !currentPath.contains("/")) return;
-
-    // Remove last directory
-    String newPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-    if (newPath.isEmpty) newPath = "/"; // Handle edge case
-
-    // Update path and send command silently
-    updateCurrentPath(chatId, newPath);
-    sendCommand(chatId, "cd $newPath", silent: true);
-  }
-
   Map<String, Map<String, dynamic>> get chats => _chats;
 
   ChatProvider() {
@@ -66,25 +51,14 @@ class ChatProvider extends ChangeNotifier {
   // --------------------------------------------------------------------------
   // canGoBack & goBackDirectory
   // --------------------------------------------------------------------------
-  bool canGoBack(String chatId) {
-    final chatData = _chats[chatId];
-    if (chatData == null) return false;
-
-    final currentPath = chatData['currentDirectory'] ?? "/";
-    return currentPath != "/";
-  }
 
   void goBackDirectory(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
-    final parentDir = getParentDirectory(chatId);
-    // Update the local state.
-    chatData['currentDirectory'] = parentDir;
-    notifyListeners();
-    // Send the cd command to the server.
+
     final ssh = chatData['service'] as SSHService?;
     if (ssh != null) {
-      ssh.sendWebSocketCommand("cd $parentDir && pwd");
+      ssh.sendWebSocketCommand("cd .. && pwd"); // ✅ Sends command to bash
     }
   }
 
@@ -354,35 +328,6 @@ class ChatProvider extends ChangeNotifier {
     ssh.sendWebSocketCommand(command);
 
     return null; // ✅ Prevent duplicate blank messages
-  }
-
-  Future<String> _handleDirectoryChange(
-      String chatId, String command, String currentDir) async {
-    return command
-        .replaceFirst("cd ", "")
-        .trim(); // ✅ Just return the directory, Bash will handle it
-  }
-
-  Future<String> _validateDirectory(String chatId, String dir) async {
-    final chatData = _chats[chatId];
-    if (chatData == null) return "";
-
-    final ssh = chatData['service'] as SSHService?;
-    if (ssh == null) return "";
-
-    ssh.sendWebSocketCommand("cd $dir && pwd");
-    await Future.delayed(const Duration(milliseconds: 500));
-    return dir;
-  }
-
-  String getParentDirectory(String chatId) {
-    final chatData = _chats[chatId];
-    if (chatData == null) return "/";
-    final currentDir = chatData['currentDirectory'] ?? "/";
-    // If at root or no slash present, stay at root.
-    if (currentDir == "/" || !currentDir.contains("/")) return "/";
-    final lastSlashIndex = currentDir.lastIndexOf('/');
-    return lastSlashIndex <= 0 ? "/" : currentDir.substring(0, lastSlashIndex);
   }
 
   // --------------------------------------------------------------------------
