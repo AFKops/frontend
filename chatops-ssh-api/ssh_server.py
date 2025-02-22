@@ -6,7 +6,6 @@ import json
 import uuid
 import re
 
-
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -15,13 +14,17 @@ logging.basicConfig(
 
 app = Quart(__name__)
 
-# We'll store for each session:
-# {
-#   "conn": <asyncssh connection>,
-#   "proc": <interactive bash process>,
-#   "read_task": <task reading from that bash>
-# }
+# Store session details for each WebSocket connection
 active_sessions = {}
+
+# Regex to match ANSI escape sequences (color codes, cursor movements, etc.)
+ANSI_ESCAPE = re.compile(
+    r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])"
+    r"|(?:\x9B[0-?]*[ -/]*[@-~])"
+)
+
+# Regex to match shell prompts (to remove redundant command echoes)
+PROMPT_REGEX = re.compile(r"^[\w@.-]+[:~\s]+\$ ")
 
 @app.websocket('/ssh-stream')
 async def ssh_stream():
@@ -34,22 +37,37 @@ async def ssh_stream():
         await websocket.accept()
         logger.info(f"[{session_id}] WebSocket connected.")
 
-        # Background task to read from the bash process
+        # ----------------------------------------------------------------------
+        # Function to Read from Bash Process
+        # ----------------------------------------------------------------------
         async def read_bash(proc):
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             try:
+                output_buffer = []
                 while not proc.stdout.at_eof():
                     line = await proc.stdout.readline()
-                if line:
-                    # Remove ANSI codes before sending to WebSocket
-                    clean_line = ansi_escape.sub('', line.rstrip("\n"))
-                    await websocket.send_json({"output": clean_line})  
+                    if line:
+                        # Remove ANSI escape codes
+                        clean_line = ANSI_ESCAPE.sub('', line).strip()
+
+                        # Remove shell prompt if detected
+                        clean_line = PROMPT_REGEX.sub('', clean_line).strip()
+
+                        if clean_line:
+                            output_buffer.append(clean_line)
+
+                    # Send batched output to avoid clutter
+                    if output_buffer:
+                        await websocket.send_json({"output": "\n".join(output_buffer)})
+                        output_buffer.clear()
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] read_bash cancelled.")
             except Exception as e:
                 logger.exception(f"[{session_id}] Error reading bash output:")
                 await websocket.send_json({"error": f"Bash read error: {str(e)}"})
 
+        # ----------------------------------------------------------------------
+        # Handle WebSocket Messages
+        # ----------------------------------------------------------------------
         while True:
             data = await websocket.receive_json()
             logger.debug(f"[{session_id}] Received data: {json.dumps(data, indent=2)}")
@@ -59,9 +77,9 @@ async def ssh_stream():
                 await websocket.send_json({"error": "No 'action' specified."})
                 continue
 
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             # CONNECT
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             if action == "CONNECT":
                 host = data.get("host")
                 username = data.get("username")
@@ -84,7 +102,6 @@ async def ssh_stream():
                     )
                     session["conn"] = conn
 
-                    # Request a PTY for the interactive shell
                     logger.info(f"[{session_id}] Starting interactive bash -i with PTY ...")
                     proc = await conn.create_process(
                         "bash -i",
@@ -104,15 +121,15 @@ async def ssh_stream():
                     logger.error(f"[{session_id}] SSH Error: {str(e)}")
                     await websocket.send_json({"error": f"SSH Error: {str(e)}"})
 
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             # RUN_COMMAND
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             elif action == "RUN_COMMAND":
                 if session["conn"] is None or session["proc"] is None:
                     await websocket.send_json({"error": "Not connected. Send action=CONNECT first."})
                     continue
 
-                cmd = data.get("command", "")
+                cmd = data.get("command", "").strip()
                 if not cmd:
                     await websocket.send_json({"error": "Missing 'command' parameter"})
                     continue
@@ -120,28 +137,26 @@ async def ssh_stream():
                 logger.info(f"[{session_id}] RUN_COMMAND: {cmd}")
 
                 try:
-                    # Write the command + newline to the shell
                     session["proc"].stdin.write(cmd + "\n")
                 except Exception as e:
                     logger.exception(f"[{session_id}] Error writing command:")
                     await websocket.send_json({"error": f"Write error: {str(e)}"})
 
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             # STOP
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             elif action == "STOP":
-                # We can send Ctrl-C if we want to kill the currently running process
                 proc = session.get("proc")
                 if proc:
                     logger.info(f"[{session_id}] Sending Ctrl-C to bash.")
-                    proc.stdin.write("\x03")  # ctrl-c
+                    proc.stdin.write("\x03")
                     await websocket.send_json({"output": "Sent Ctrl-C."})
                 else:
                     await websocket.send_json({"info": "No interactive shell to stop."})
 
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             # LIST_FILES
-            # --------------------------------------------------------
+            # ------------------------------------------------------------------
             elif action == "LIST_FILES":
                 if session["conn"] is None:
                     await websocket.send_json({"error": "Not connected. Send action=CONNECT first."})
@@ -173,7 +188,7 @@ async def ssh_stream():
         logger.exception(f"[{session_id}] Unexpected error in websocket handler:")
         await websocket.send_json({"error": f"Server Error: {str(e)}"})
     finally:
-        # On disconnect, try to exit the shell and close the connection
+        # Cleanup session on disconnect
         proc = session.get("proc")
         if proc:
             logger.info(f"[{session_id}] Exiting interactive bash.")

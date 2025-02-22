@@ -13,6 +13,32 @@ class ChatProvider extends ChangeNotifier {
   String _currentChatId = "";
   bool _isConnected = false;
 
+  String getCurrentPath(String chatId) {
+    return _chats[chatId]?['currentDirectory'] ?? "/root";
+  }
+
+  void updateCurrentPath(String chatId, String newPath) {
+    if (_chats.containsKey(chatId) && _chats[chatId] != null) {
+      _chats[chatId]!['currentDirectory'] = newPath;
+      notifyListeners();
+    }
+  }
+
+  Future<void> goBackOneDirectory(String chatId) async {
+    String currentPath = getCurrentPath(chatId);
+
+    // Prevent going beyond root
+    if (currentPath == "/" || !currentPath.contains("/")) return;
+
+    // Remove last directory
+    String newPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+    if (newPath.isEmpty) newPath = "/"; // Handle edge case
+
+    // Update path and send command silently
+    updateCurrentPath(chatId, newPath);
+    sendCommand(chatId, "cd $newPath", silent: true);
+  }
+
   Map<String, Map<String, dynamic>> get chats => _chats;
 
   ChatProvider() {
@@ -49,18 +75,17 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void goBackDirectory(String chatId) {
-    if (!canGoBack(chatId)) return;
     final chatData = _chats[chatId];
     if (chatData == null) return;
-
-    final currentPath = chatData['currentDirectory'] ?? "/";
-    final lastSlashIndex = currentPath.lastIndexOf('/');
-    if (lastSlashIndex <= 0) {
-      chatData['currentDirectory'] = "/";
-    } else {
-      chatData['currentDirectory'] = currentPath.substring(0, lastSlashIndex);
-    }
+    final parentDir = getParentDirectory(chatId);
+    // Update the local state.
+    chatData['currentDirectory'] = parentDir;
     notifyListeners();
+    // Send the cd command to the server.
+    final ssh = chatData['service'] as SSHService?;
+    if (ssh != null) {
+      ssh.sendWebSocketCommand("cd $parentDir && pwd");
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -305,31 +330,14 @@ class ChatProvider extends ChangeNotifier {
   // --------------------------------------------------------------------------
   // SEND COMMAND
   // --------------------------------------------------------------------------
-  Future<String?> sendCommand(String chatId, String command) async {
+  Future<String?> sendCommand(String chatId, String command,
+      {bool silent = false}) async {
     final chatData = _chats[chatId];
     if (chatData == null) return "❌ Chat session not found!";
 
-    addMessage(chatId, command, isUser: true);
-    final currentDir = chatData['currentDirectory'] ?? "/root";
-
-    if (command.startsWith("cd ")) {
-      final newDir = await _handleDirectoryChange(chatId, command, currentDir);
-      if (newDir.isNotEmpty) {
-        chatData['currentDirectory'] = newDir;
-        addMessage(chatId, "📂 Now in: $newDir", isUser: false);
-        await saveChatHistory();
-        return "📂 Now in: $newDir";
-      } else {
-        addMessage(chatId, "❌ Invalid directory", isUser: false);
-        return "❌ Invalid directory";
-      }
-    }
-
-    if (isStreamingCommand(command)) {
-      chatData['inProgress'] = true; // ✅ Only mark long-running commands
-      notifyListeners();
-      startStreaming(chatId, command);
-      return "📡 Streaming started...";
+    // ✅ Only add the command message to the UI if it's not silent
+    if (!silent) {
+      addMessage(chatId, command, isUser: true);
     }
 
     final ssh = chatData['service'] as SSHService?;
@@ -337,23 +345,22 @@ class ChatProvider extends ChangeNotifier {
       return "❌ No SSHService found!";
     }
 
-    final fullCmd = "cd $currentDir && $command";
-    ssh.sendWebSocketCommand(fullCmd);
+    // ✅ Append `&& pwd` to `cd` commands so Bash always responds with the new directory
+    if (command.startsWith("cd ")) {
+      command = "$command && pwd";
+    }
 
-    return null; // ✅ Instead of an empty string, return `null` to avoid blank messages
+    // ✅ Directly send the command, let Bash handle everything
+    ssh.sendWebSocketCommand(command);
+
+    return null; // ✅ Prevent duplicate blank messages
   }
 
   Future<String> _handleDirectoryChange(
       String chatId, String command, String currentDir) async {
-    final targetDir = command.replaceFirst("cd ", "").trim();
-    if (targetDir == "..") {
-      return _getParentDirectory(chatId);
-    }
-    if (targetDir.startsWith("/")) {
-      return _validateDirectory(chatId, targetDir);
-    }
-    final newDir = "$currentDir/$targetDir";
-    return _validateDirectory(chatId, newDir);
+    return command
+        .replaceFirst("cd ", "")
+        .trim(); // ✅ Just return the directory, Bash will handle it
   }
 
   Future<String> _validateDirectory(String chatId, String dir) async {
@@ -368,19 +375,14 @@ class ChatProvider extends ChangeNotifier {
     return dir;
   }
 
-  Future<String> _getParentDirectory(String chatId) async {
+  String getParentDirectory(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return "/";
-
-    final currentDir = chatData['currentDirectory'] ?? "/root";
-    if (currentDir == "/") {
-      return "/";
-    }
-    final slashIdx = currentDir.lastIndexOf('/');
-    if (slashIdx <= 0) {
-      return "/";
-    }
-    return currentDir.substring(0, slashIdx);
+    final currentDir = chatData['currentDirectory'] ?? "/";
+    // If at root or no slash present, stay at root.
+    if (currentDir == "/" || !currentDir.contains("/")) return "/";
+    final lastSlashIndex = currentDir.lastIndexOf('/');
+    return lastSlashIndex <= 0 ? "/" : currentDir.substring(0, lastSlashIndex);
   }
 
   // --------------------------------------------------------------------------

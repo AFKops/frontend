@@ -254,16 +254,20 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
-    await Provider.of<ChatProvider>(context, listen: false)
-        .updateFileSuggestions(widget.chatId);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    // Update file suggestions
+    await chatProvider.updateFileSuggestions(widget.chatId);
+
     setState(() {
-      _fileSuggestions = Provider.of<ChatProvider>(context, listen: false)
-              .chats[widget.chatId]?['fileSuggestions'] ??
-          [];
+      _fileSuggestions =
+          chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
     });
+
     final RenderBox renderBox =
         key.currentContext!.findRenderObject() as RenderBox;
     final Offset position = renderBox.localToGlobal(Offset.zero);
+
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -275,16 +279,19 @@ class _ChatScreenState extends State<ChatScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
       items: [
-        if (Provider.of<ChatProvider>(context, listen: false)
-            .canGoBack(widget.chatId))
+        if (chatProvider.canGoBack(widget.chatId))
           PopupMenuItem(
             onTap: () {
-              Provider.of<ChatProvider>(context, listen: false)
-                  .goBackDirectory(widget.chatId);
-              setState(() {
-                _messageController.text = "cd ..";
-              });
-              _sendMessage();
+              // ✅ Get the correct absolute parent directory
+              final previousDir =
+                  chatProvider.getParentDirectory(widget.chatId);
+
+              // ✅ Update the stored path first
+              chatProvider.goBackDirectory(widget.chatId);
+
+              // ✅ Send the command correctly
+              chatProvider.sendCommand(widget.chatId, "cd $previousDir",
+                  silent: true);
             },
             child: Row(
               children: [
@@ -305,8 +312,16 @@ class _ChatScreenState extends State<ChatScreen> {
         ..._fileSuggestions.map((dir) {
           return PopupMenuItem(
             onTap: () {
+              final chatData = chatProvider.chats[widget.chatId];
+              final currentDir = chatData?['currentDirectory'] ?? "/";
+
+              // ✅ Ensure we append directories properly
+              String targetPath =
+                  dir.startsWith("/") ? dir : "$currentDir/$dir";
+              targetPath = targetPath.replaceAll("//", "/");
+
               setState(() {
-                _messageController.text = "cd $dir";
+                _messageController.text = "cd $targetPath";
               });
             },
             child: Text(
@@ -479,10 +494,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         onPressed: () {
                           chatProvider.goBackDirectory(widget.chatId);
-                          setState(() {
-                            _messageController.text = "cd ..";
-                          });
-                          _sendMessage();
                         },
                       )
                     : null,
@@ -586,8 +597,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final chatData = chatProvider.chats[chatId];
     final bool inProgress = (chatData?['inProgress'] == true);
-
     final isLastMessage = (index == messages.length - 1);
+
+    // ✅ Extract small command part if present
+    String smallCommand = "";
+    String mainText = text;
+
+    final smallMatch = RegExp(r"<small>(.*?)<\/small>").firstMatch(text);
+    if (smallMatch != null) {
+      smallCommand = smallMatch.group(1) ?? "";
+      mainText = text.replaceAll(smallMatch.group(0)!, "").trim();
+    }
 
     return GestureDetector(
       onLongPress: () {
@@ -613,14 +633,28 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ✅ Show small command text in a smaller, lighter style
+            if (smallCommand.isNotEmpty)
+              Text(
+                smallCommand,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  color: isDarkMode ? Colors.white38 : Colors.black45,
+                ),
+              ),
+
+            // ✅ Show actual command output (Main Text)
             SelectableText(
-              text,
+              mainText,
               style: TextStyle(
                 fontSize: 14,
                 fontFamily: "monospace",
                 color: isDarkMode ? Colors.white70 : Colors.black87,
               ),
             ),
+
+            // ✅ Show streaming/in-progress indicator if needed
             if (isLastMessage && !isUserMessage && (isStreaming || inProgress))
               Padding(
                 padding: const EdgeInsets.only(top: 5),
