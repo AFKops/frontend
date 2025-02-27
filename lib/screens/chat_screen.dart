@@ -29,7 +29,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isTyping = false;
   bool _isAtBottom = true;
 
-  /// If `true`, user has scrolled away from the bottom, so we
+  /// If true, user has scrolled away from the bottom, so we
   /// temporarily stop auto-scrolling on new messages.
   bool _userHasScrolledUp = false;
 
@@ -98,8 +98,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _isAtBottom = distanceFromBottom <= 50;
     });
 
-    // If user is no longer near bottom, set `_userHasScrolledUp = true`.
-    // If user is back near bottom, set `_userHasScrolledUp = false`.
+    // If user is no longer near bottom, set _userHasScrolledUp = true.
+    // If user is back near bottom, set _userHasScrolledUp = false.
     if (distanceFromBottom > 50) {
       _userHasScrolledUp = true;
     } else {
@@ -112,7 +112,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_scrollController.hasClients) return;
 
     // Only auto-scroll if forced or user is at bottom
-    // If `force` is true, we ignore `_userHasScrolledUp`
+    // If force is true, we ignore _userHasScrolledUp
     if (!force && _userHasScrolledUp) return;
 
     final position = _scrollController.position.maxScrollExtent;
@@ -281,7 +281,7 @@ class _ChatScreenState extends State<ChatScreen> {
       items: [
         PopupMenuItem(
           onTap: () {
-            // ✅ Just send `cd .. && pwd` instead of tracking directories manually
+            // ✅ Just send cd .. && pwd instead of tracking directories manually
             chatProvider.sendCommand(widget.chatId, "cd .. && pwd",
                 silent: true);
           },
@@ -450,17 +450,6 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.all(10.0),
       child: Row(
         children: [
-          // ✅ Always show back button (since Bash tracks paths)
-          IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              color: isDarkMode ? Colors.white : Colors.black,
-            ),
-            onPressed: () {
-              chatProvider.sendCommand(widget.chatId, "cd ..", silent: true);
-            },
-          ),
-
           Expanded(
             child: TextField(
               controller: _messageController,
@@ -470,6 +459,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 hintText: "Type a command...",
                 hintStyle: TextStyle(
                   color: isDarkMode ? Colors.white54 : Colors.black54,
+                ),
+                prefixIcon: IconButton(
+                  icon: Icon(
+                    Icons.arrow_back,
+                    color: isDarkMode ? Colors.white : Colors.black,
+                  ),
+                  onPressed: () {
+                    chatProvider.sendCommand(widget.chatId, "cd ..",
+                        silent: true);
+                  },
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25.0),
@@ -491,12 +490,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 fillColor: Colors.transparent,
               ),
               onTap: () {
-                // If user taps the input box, we can forcibly scroll to bottom
                 _scrollToBottom(force: true);
               },
             ),
           ),
 
+          // Send button remains outside
           IconButton(
             icon: Icon(
               Icons.send,

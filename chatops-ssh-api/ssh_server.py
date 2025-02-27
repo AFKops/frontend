@@ -6,26 +6,34 @@ import json
 import uuid
 import re
 
+# -----------------------------------------------------------------------------
+# Configure logging
+# -----------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
 
+# -----------------------------------------------------------------------------
+# Create Quart app and store active sessions
+# -----------------------------------------------------------------------------
 app = Quart(__name__)
+active_sessions = {}  # session_id -> {"conn", "proc", "read_task"}
 
-# Store session details for each WebSocket connection
-active_sessions = {}
-
-# Regex to match ANSI escape sequences (color codes, cursor movements, etc.)
+# -----------------------------------------------------------------------------
+# ANSI / Shell prompt cleaning
+# -----------------------------------------------------------------------------
 ANSI_ESCAPE = re.compile(
     r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])"
     r"|(?:\x9B[0-?]*[ -/]*[@-~])"
 )
-
-# Regex to match shell prompts (to remove redundant command echoes)
 PROMPT_REGEX = re.compile(r"^[\w@.-]+[:~\s]+\$ ")
 
+
+###############################################################################
+# WebSocket endpoint /ssh-stream
+###############################################################################
 @app.websocket('/ssh-stream')
 async def ssh_stream():
     logger = logging.getLogger('websocket')
@@ -34,11 +42,12 @@ async def ssh_stream():
     active_sessions[session_id] = session
 
     try:
+        # Accept the WebSocket connection
         await websocket.accept()
         logger.info(f"[{session_id}] WebSocket connected.")
 
         # ----------------------------------------------------------------------
-        # Function to Read from Bash Process
+        # Background task: read from the interactive bash process line by line
         # ----------------------------------------------------------------------
         async def read_bash(proc):
             try:
@@ -46,16 +55,18 @@ async def ssh_stream():
                 while not proc.stdout.at_eof():
                     line = await proc.stdout.readline()
                     if line:
-                        # Remove ANSI escape codes
+                        # Remove ANSI escapes and shell prompt
                         clean_line = ANSI_ESCAPE.sub('', line).strip()
-
-                        # Remove shell prompt if detected
                         clean_line = PROMPT_REGEX.sub('', clean_line).strip()
+
+                        # If it looks like a typed command, wrap in <small> tags
+                        if re.search(r"\$\s(cd|ls|pwd|mkdir|rm|touch|echo|cat|nano)", clean_line):
+                            clean_line = f"<small>{clean_line}</small>"
 
                         if clean_line:
                             output_buffer.append(clean_line)
 
-                    # Send batched output to avoid clutter
+                    # Send batched output lines in one JSON message
                     if output_buffer:
                         await websocket.send_json({"output": "\n".join(output_buffer)})
                         output_buffer.clear()
@@ -66,7 +77,7 @@ async def ssh_stream():
                 await websocket.send_json({"error": f"Bash read error: {str(e)}"})
 
         # ----------------------------------------------------------------------
-        # Handle WebSocket Messages
+        # Main WebSocket loop: handle JSON messages from the Flutter client
         # ----------------------------------------------------------------------
         while True:
             data = await websocket.receive_json()
@@ -78,7 +89,7 @@ async def ssh_stream():
                 continue
 
             # ------------------------------------------------------------------
-            # CONNECT
+            # 1) CONNECT
             # ------------------------------------------------------------------
             if action == "CONNECT":
                 host = data.get("host")
@@ -88,6 +99,7 @@ async def ssh_stream():
                     await websocket.send_json({"error": "Missing host/username/password"})
                     continue
 
+                # If already connected, reuse session
                 if session["conn"] is not None:
                     await websocket.send_json({"info": "Already connected, reusing session"})
                     continue
@@ -110,7 +122,7 @@ async def ssh_stream():
                     )
                     session["proc"] = proc
 
-                    # Start reading output in background
+                    # Start reading from the bash process in the background
                     read_task = asyncio.create_task(read_bash(proc))
                     session["read_task"] = read_task
 
@@ -122,7 +134,7 @@ async def ssh_stream():
                     await websocket.send_json({"error": f"SSH Error: {str(e)}"})
 
             # ------------------------------------------------------------------
-            # RUN_COMMAND
+            # 2) RUN_COMMAND
             # ------------------------------------------------------------------
             elif action == "RUN_COMMAND":
                 if session["conn"] is None or session["proc"] is None:
@@ -135,7 +147,6 @@ async def ssh_stream():
                     continue
 
                 logger.info(f"[{session_id}] RUN_COMMAND: {cmd}")
-
                 try:
                     session["proc"].stdin.write(cmd + "\n")
                 except Exception as e:
@@ -143,42 +154,65 @@ async def ssh_stream():
                     await websocket.send_json({"error": f"Write error: {str(e)}"})
 
             # ------------------------------------------------------------------
-            # STOP
+            # 3) STOP
             # ------------------------------------------------------------------
             elif action == "STOP":
                 proc = session.get("proc")
                 if proc:
                     logger.info(f"[{session_id}] Sending Ctrl-C to bash.")
-                    proc.stdin.write("\x03")
+                    proc.stdin.write("\x03")  # Ctrl-C
                     await websocket.send_json({"output": "Sent Ctrl-C."})
                 else:
                     await websocket.send_json({"info": "No interactive shell to stop."})
 
             # ------------------------------------------------------------------
-            # LIST_FILES
+            # 4) LIST_FILES
+            #
+            # *** FIX: We REMOVED any $(pwd)/ logic to trust the absolute path
+            #          the Flutter app already sends us. ***
             # ------------------------------------------------------------------
             elif action == "LIST_FILES":
                 if session["conn"] is None:
                     await websocket.send_json({"error": "Not connected. Send action=CONNECT first."})
                     continue
 
-                directory = data.get("directory") or "."
-                list_cmd = f'ls -p "{directory}" | grep "/$"'
-                logger.info(f"[{session_id}] Listing directories: {directory}")
+                directory = data.get("directory", ".").strip()
+
+                # We do NOT prepend $(pwd)/ or do any "cd" here. This ephemeral
+                # process won't share the interactive shell's state, so we
+                # assume the client is sending an absolute path if needed.
+                #
+                # => e.g. "ls -d -- '/var/www'/*/"
+                #
+                list_cmd = (
+                    f'ls -d -- "{directory}"/*/ 2>/dev/null | xargs -I {{}} basename {{}}'
+                )
+                logger.info(f"[{session_id}] Fetching directories for: {directory}")
+
                 try:
+                    # Create ephemeral process just for listing
                     ephemeral = await session["conn"].create_process(list_cmd)
                     results = []
                     async for line in ephemeral.stdout:
                         results.append(line.strip())
+
+                    logger.info(f"[{session_id}] Found directories: {results}")
                     await websocket.send_json({"directories": results})
+
                 except Exception as e:
-                    logger.exception(f"[{session_id}] Error listing files:")
+                    logger.exception(f"[{session_id}] Error listing directories:")
                     await websocket.send_json({"error": f"List files error: {str(e)}"})
 
+            # ------------------------------------------------------------------
+            # UNKNOWN ACTION
+            # ------------------------------------------------------------------
             else:
                 logger.warning(f"[{session_id}] Unknown action: {action}")
                 await websocket.send_json({"error": f"Unknown action: {action}"})
 
+    # --------------------------------------------------------------------------
+    # Handle any exceptions from the main loop
+    # --------------------------------------------------------------------------
     except asyncio.IncompleteReadError:
         logger.warning(f"[{session_id}] IncompleteReadError.")
     except asyncssh.Error as e:
@@ -188,14 +222,16 @@ async def ssh_stream():
         logger.exception(f"[{session_id}] Unexpected error in websocket handler:")
         await websocket.send_json({"error": f"Server Error: {str(e)}"})
     finally:
+        # ----------------------------------------------------------------------
         # Cleanup session on disconnect
+        # ----------------------------------------------------------------------
         proc = session.get("proc")
         if proc:
             logger.info(f"[{session_id}] Exiting interactive bash.")
             try:
                 proc.stdin.write("exit\n")
                 await asyncio.sleep(0.1)
-                proc.stdin.write("\x04")  # ctrl-D
+                proc.stdin.write("\x04")  # Ctrl-D
             except:
                 pass
 
@@ -218,6 +254,10 @@ async def ssh_stream():
 
         logger.info(f"[{session_id}] WebSocket disconnected.")
 
+
+###############################################################################
+# Main entry: run Hypercorn
+###############################################################################
 if __name__ == "__main__":
     from hypercorn.asyncio import serve
     from hypercorn.config import Config

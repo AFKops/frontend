@@ -319,7 +319,7 @@ class ChatProvider extends ChangeNotifier {
       return "❌ No SSHService found!";
     }
 
-    // ✅ Append `&& pwd` to `cd` commands so Bash always responds with the new directory
+    // ✅ Append && pwd to cd commands so Bash always responds with the new directory
     if (command.startsWith("cd ")) {
       command = "$command && pwd";
     }
@@ -411,33 +411,45 @@ class ChatProvider extends ChangeNotifier {
 
   // ADDED CODE: parse server output for "directories"
   void _handleServerOutput(String chatId, String rawOutput) {
+    final chatData = _chats[chatId];
+    if (chatData == null) return;
+
     try {
+      // If it’s the JSON with "directories", store them and return
       final parsed = jsonDecode(rawOutput);
       if (parsed is Map && parsed.containsKey("directories")) {
-        _chats[chatId]?['fileSuggestions'] =
-            List<String>.from(parsed["directories"]);
+        chatData['fileSuggestions'] = List<String>.from(parsed["directories"]);
         notifyListeners();
         return;
       }
     } catch (_) {
-      // Not JSON, process as normal output
+      // Not JSON? Then treat it as normal command output.
     }
 
-    final chatData = _chats[chatId];
-    if (chatData == null) return;
+    // ──────────────────────────────────────────────────────
+    // 1) Check if any line is just an absolute path => new cwd
+    // ──────────────────────────────────────────────────────
+    final lines = rawOutput.split('\n');
+    for (final line in lines) {
+      // A naive check: if line starts with "/", no spaces, treat it as a new path
+      if (line.startsWith('/') && !line.contains(' ')) {
+        updateCurrentPath(chatId, line.trim()); // <== store it!
+      }
+    }
 
+    // Accumulate the output so we can show it as a message
     if (chatData.containsKey('lastCommandOutput')) {
       chatData['lastCommandOutput'] += "\n" + rawOutput;
     } else {
       chatData['lastCommandOutput'] = rawOutput;
     }
 
-    // ✅ Delay ensures we group command outputs together before scrolling
+    // Send that output as a single chat bubble after a small delay
     Future.delayed(const Duration(milliseconds: 100), () {
       if (chatData.containsKey('lastCommandOutput')) {
         addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
-        chatData.remove('lastCommandOutput'); // Clear after displaying
-        notifyListeners(); // ✅ Trigger UI update
+        chatData.remove('lastCommandOutput'); // clear so we don't repeat
+        notifyListeners();
       }
     });
   }
