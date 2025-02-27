@@ -89,11 +89,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isConnecting = true); // ✅ Show loading indicator
 
-    String chatId = await _attemptConnection(
-        chatProvider, chatName, host, username, passwordToUse);
+    // ✅ Attempt SSH connection & validate authentication
+    String chatId = await chatProvider.startNewChat(
+      chatName: chatName,
+      host: host,
+      username: username,
+      password: passwordToUse,
+      isGeneralChat: false,
+    );
 
     setState(() => _isConnecting = false); // ✅ Hide loading indicator
 
+    // ✅ Authentication Validation: Proceed only if authentication succeeds
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
       chatProvider.setCurrentChat(chatId);
       if (mounted) {
@@ -104,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❌ Failed to connect to SSH server.")),
+        const SnackBar(
+            content: Text("❌ Authentication failed or SSH connection error.")),
       );
     }
   }

@@ -87,12 +87,8 @@ class ChatProvider extends ChangeNotifier {
       'passwordSaved': password.isNotEmpty && !isGeneralChat,
       'currentDirectory': isGeneralChat ? "" : "/root",
       'connected': isGeneralChat,
-      // Keep one SSHService instance per chat
       'service': isGeneralChat ? null : SSHService(),
-
-      // ADDED CODE: We'll track ephemeral commands
       'inProgress': false,
-      // ADDED CODE: We'll store directory suggestions
       'fileSuggestions': <String>[],
     };
 
@@ -106,37 +102,51 @@ class ChatProvider extends ChangeNotifier {
 
     final chatData = _chats[newChatId];
     if (chatData == null) {
-      addMessage(
-        newChatId,
-        "❌ Chat data is missing or null",
-        isUser: false,
-      );
-      return newChatId;
+      return "";
     }
 
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) {
-      addMessage(newChatId, "❌ No SSHService found", isUser: false);
-      return newChatId;
+      return "";
     }
 
     try {
+      // ✅ Wait for authentication response from WebSocket before proceeding
+      Completer<String> authCompleter = Completer<String>();
+
       ssh.connectToWebSocket(
         host: host,
         username: username,
         password: password,
-
-        // ADDED CODE: parse directory JSON in _handleServerOutput
         onMessageReceived: (output) {
+          if (output.contains("❌ Authentication failed")) {
+            authCompleter.complete("FAIL");
+          } else if (output.contains("Interactive Bash session started.")) {
+            authCompleter.complete("SUCCESS");
+          }
           _handleServerOutput(newChatId, output);
         },
         onError: (err) {
+          authCompleter.complete("FAIL");
           addMessage(newChatId, "❌ $err", isUser: false);
           _isConnected = false;
           notifyListeners();
         },
       );
 
+      // ✅ Wait for authentication success or failure
+      String authResult = await authCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => "TIMEOUT",
+      );
+
+      if (authResult != "SUCCESS") {
+        _chats.remove(newChatId);
+        notifyListeners();
+        return "";
+      }
+
+      // ✅ Send uptime command after successful connection
       Future.delayed(const Duration(milliseconds: 300), () {
         ssh.sendWebSocketCommand("uptime");
       });
@@ -145,12 +155,13 @@ class ChatProvider extends ChangeNotifier {
       _isConnected = true;
       addMessage(newChatId, "✅ Connected to $host", isUser: false);
       notifyListeners();
-    } catch (e) {
-      _isConnected = false;
-      addMessage(newChatId, "❌ Failed to connect to $host\n$e", isUser: false);
-    }
 
-    return newChatId;
+      return newChatId;
+    } catch (e) {
+      _chats.remove(newChatId);
+      notifyListeners();
+      return "";
+    }
   }
 
   // --------------------------------------------------------------------------

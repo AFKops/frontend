@@ -215,9 +215,13 @@ async def ssh_stream():
     # --------------------------------------------------------------------------
     except asyncio.IncompleteReadError:
         logger.warning(f"[{session_id}] IncompleteReadError.")
+    except asyncssh.AuthenticationError:
+        logger.error(f"[{session_id}] Authentication failed for {username}@{host}")
+        await websocket.send_json({"error": "❌ Authentication failed: Incorrect username or password."})
+
     except asyncssh.Error as e:
-        logger.error(f"[{session_id}] SSH error: {str(e)}")
-        await websocket.send_json({"error": f"SSH error: {str(e)}"})
+        logger.error(f"[{session_id}] SSH Error: {str(e)}")
+        await websocket.send_json({"error": f"❌ SSH Error: {str(e)}"})
     except Exception as e:
         logger.exception(f"[{session_id}] Unexpected error in websocket handler:")
         await websocket.send_json({"error": f"Server Error: {str(e)}"})
