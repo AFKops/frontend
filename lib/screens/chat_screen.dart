@@ -16,8 +16,6 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final GlobalKey _directoryButtonKey = GlobalKey();
-
   // Directory suggestions
   List<String> _filteredSuggestions = [];
   bool _showTagPopup = false;
@@ -134,43 +132,39 @@ class _ChatScreenState extends State<ChatScreen> {
     final input = _messageController.text.trim();
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
-    // Check if user typed "cd "
-    if (input.startsWith("cd ")) {
-      final query = input.substring(3).trim();
-      if (query.isNotEmpty) {
-        // Update suggestions
-        await chatProvider.updateFileSuggestions(widget.chatId, query: query);
-        setState(() {
-          _fileSuggestions =
-              chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
-        });
-
-        // Filter deeper directory vs top-level
-        if (!query.contains("/")) {
-          final matches =
-              _fileSuggestions.where((file) => file.startsWith(query)).toList();
-          setState(() {
-            _filteredSuggestions = matches;
-            _showTagPopup = _filteredSuggestions.isNotEmpty;
-          });
-        } else {
-          final lastPart = query.split("/").last;
-          final matches = _fileSuggestions
-              .where((file) => file.startsWith(lastPart))
-              .toList();
-          setState(() {
-            _filteredSuggestions = matches;
-            _showTagPopup = _filteredSuggestions.isNotEmpty;
-          });
-        }
-      }
-    } else {
-      // If user typed something else, close suggestions
+    if (!input.toLowerCase().startsWith("cd")) {
       setState(() {
         _filteredSuggestions.clear();
         _showTagPopup = false;
       });
+      return;
     }
+
+    final rawQuery = input.length > 2 ? input.substring(3).trim() : "";
+    final isRequestingSubdir = rawQuery.endsWith("/");
+
+    // Always fetch the latest directory suggestions when a valid path is typed
+    if (isRequestingSubdir || rawQuery.isEmpty) {
+      await chatProvider.updateFileSuggestions(widget.chatId, query: rawQuery);
+    }
+
+    // Update with fresh suggestions from Bash/WebSocket response
+    setState(() {
+      _fileSuggestions =
+          chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
+
+      if (rawQuery.isEmpty) {
+        _filteredSuggestions = List<String>.from(_fileSuggestions);
+      } else {
+        final pathParts = rawQuery.split("/");
+        final lastPart = pathParts.last;
+
+        _filteredSuggestions =
+            _fileSuggestions.where((dir) => dir.startsWith(lastPart)).toList();
+      }
+
+      _showTagPopup = _filteredSuggestions.isNotEmpty;
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -250,85 +244,6 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _isTyping = false);
   }
 
-// Show directory suggestions popup
-  void _showDirectoryDropdown(BuildContext context, GlobalKey key) async {
-    final isDarkMode =
-        Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-
-    // Update file suggestions
-    await chatProvider.updateFileSuggestions(widget.chatId);
-
-    setState(() {
-      _fileSuggestions =
-          chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
-    });
-
-    final RenderBox renderBox =
-        key.currentContext!.findRenderObject() as RenderBox;
-    final Offset position = renderBox.localToGlobal(Offset.zero);
-
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy + renderBox.size.height + 5,
-        position.dx + 150,
-        position.dy + renderBox.size.height + 200,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
-      items: [
-        PopupMenuItem(
-          onTap: () {
-            // ✅ Just send cd .. && pwd instead of tracking directories manually
-            chatProvider.sendCommand(widget.chatId, "cd .. && pwd",
-                silent: true);
-          },
-          child: Row(
-            children: [
-              Icon(Icons.arrow_back,
-                  size: 16,
-                  color: isDarkMode ? Colors.white54 : Colors.black54),
-              const SizedBox(width: 5),
-              Text(
-                "Go Back",
-                style: TextStyle(
-                    fontSize: 14,
-                    fontFamily: "monospace",
-                    color: isDarkMode ? Colors.white : Colors.black54),
-              ),
-            ],
-          ),
-        ),
-        ..._fileSuggestions.map((dir) {
-          return PopupMenuItem(
-            onTap: () {
-              final chatData = chatProvider.chats[widget.chatId];
-              final currentDir = chatData?['currentDirectory'] ?? "/";
-
-              // ✅ Ensure we append directories properly
-              String targetPath =
-                  dir.startsWith("/") ? dir : "$currentDir/$dir";
-              targetPath = targetPath.replaceAll("//", "/");
-
-              setState(() {
-                _messageController.text = "cd $targetPath";
-              });
-            },
-            child: Text(
-              dir,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: "monospace",
-                  color: isDarkMode ? Colors.white : Colors.black87),
-            ),
-          );
-        }).toList(),
-      ],
-    );
-  }
-
   // --------------------------------------------------------------------------
   // UI BUILD
   // --------------------------------------------------------------------------
@@ -357,12 +272,6 @@ class _ChatScreenState extends State<ChatScreen> {
               color: isConnected ? Colors.green : Colors.grey,
             ),
             onPressed: () {},
-          ),
-          IconButton(
-            key: _directoryButtonKey,
-            icon: const Icon(Icons.folder_open),
-            onPressed: () =>
-                _showDirectoryDropdown(context, _directoryButtonKey),
           ),
           IconButton(
             icon: const Icon(Icons.add),

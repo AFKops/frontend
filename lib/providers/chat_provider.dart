@@ -226,36 +226,30 @@ class ChatProvider extends ChangeNotifier {
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
 
-    // Cancel any previous debounce timer
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      String targetDir = chatData['currentDirectory'] ?? "/";
+    String targetDir = chatData['currentDirectory'] ?? "/";
 
-      if (query != null && query.isNotEmpty) {
-        if (query.startsWith("/")) {
-          // Absolute path case
-          targetDir = query;
-        } else {
-          // Relative path case: Append query to current directory
-          targetDir = "$targetDir/$query";
-        }
-      }
-
-      // Ensure targetDir is valid and remove any double slashes
-      targetDir = targetDir.replaceAll("//", "/");
-
-      // Extract only the **last full directory** for listing
-      List<String> parts = targetDir.split("/");
-      parts.removeWhere((e) => e.isEmpty);
-
-      if (parts.isNotEmpty) {
-        targetDir = "/${parts.join("/")}";
-        print("📤 Sending LIST_FILES: $targetDir");
-        ssh.listFiles(targetDir);
+    if (query != null && query.isNotEmpty) {
+      if (query.startsWith("/")) {
+        targetDir = query; // Absolute path case
       } else {
-        print("⚠️ No valid directory found to list.");
+        targetDir = "$targetDir/$query"; // Relative path case
       }
-    });
+    }
+
+    // Ensure the path is formatted correctly (no double slashes)
+    targetDir = targetDir.replaceAll("//", "/");
+
+    // Extract last directory for listing
+    List<String> parts = targetDir.split("/");
+    parts.removeWhere((e) => e.isEmpty);
+
+    if (parts.isNotEmpty) {
+      targetDir = "/${parts.join("/")}";
+      print("📤 Sending LIST_FILES request for: $targetDir");
+      ssh.listFiles(targetDir);
+    } else {
+      print("⚠️ No valid directory found to list.");
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -415,7 +409,7 @@ class ChatProvider extends ChangeNotifier {
     if (chatData == null) return;
 
     try {
-      // If it’s the JSON with "directories", store them and return
+      // If it’s a JSON with "directories"
       final parsed = jsonDecode(rawOutput);
       if (parsed is Map && parsed.containsKey("directories")) {
         chatData['fileSuggestions'] = List<String>.from(parsed["directories"]);
@@ -423,32 +417,30 @@ class ChatProvider extends ChangeNotifier {
         return;
       }
     } catch (_) {
-      // Not JSON? Then treat it as normal command output.
+      // Not JSON => treat as normal text
     }
 
-    // ──────────────────────────────────────────────────────
-    // 1) Check if any line is just an absolute path => new cwd
-    // ──────────────────────────────────────────────────────
+    // If the output line is an absolute path => new cwd
     final lines = rawOutput.split('\n');
     for (final line in lines) {
-      // A naive check: if line starts with "/", no spaces, treat it as a new path
       if (line.startsWith('/') && !line.contains(' ')) {
-        updateCurrentPath(chatId, line.trim()); // <== store it!
+        updateCurrentPath(chatId, line.trim());
+        // Immediately fetch subdirectories for the new path (no partial):
+        updateFileSuggestions(chatId);
       }
     }
 
-    // Accumulate the output so we can show it as a message
+    // Accumulate the output for chat display
     if (chatData.containsKey('lastCommandOutput')) {
       chatData['lastCommandOutput'] += "\n" + rawOutput;
     } else {
       chatData['lastCommandOutput'] = rawOutput;
     }
 
-    // Send that output as a single chat bubble after a small delay
     Future.delayed(const Duration(milliseconds: 100), () {
       if (chatData.containsKey('lastCommandOutput')) {
         addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
-        chatData.remove('lastCommandOutput'); // clear so we don't repeat
+        chatData.remove('lastCommandOutput');
         notifyListeners();
       }
     });
