@@ -5,6 +5,7 @@ import asyncio
 import json
 import uuid
 import re
+import base64  # ✅ Import base64 for decoding
 
 # -----------------------------------------------------------------------------
 # Configure logging
@@ -30,6 +31,14 @@ ANSI_ESCAPE = re.compile(
 )
 PROMPT_REGEX = re.compile(r"^[\w@.-]+[:~\s]+\$ ")
 
+# -----------------------------------------------------------------------------
+# Function to safely decode Base64 password
+# -----------------------------------------------------------------------------
+def decode_password(encoded_password):
+    try:
+        return base64.b64decode(encoded_password).decode("utf-8")
+    except Exception:
+        return encoded_password  # Return as is if decoding fails
 
 ###############################################################################
 # WebSocket endpoint /ssh-stream
@@ -95,9 +104,13 @@ async def ssh_stream():
                 host = data.get("host")
                 username = data.get("username")
                 password = data.get("password")
+
                 if not all([host, username, password]):
                     await websocket.send_json({"error": "Missing host/username/password"})
                     continue
+
+                # ✅ Decode password safely
+                decoded_password = decode_password(password)
 
                 # If already connected, reuse session
                 if session["conn"] is not None:
@@ -109,7 +122,7 @@ async def ssh_stream():
                     conn = await asyncssh.connect(
                         host=host,
                         username=username,
-                        password=password,
+                        password=decoded_password,  # ✅ Use decoded password
                         known_hosts=None
                     )
                     session["conn"] = conn
@@ -129,9 +142,12 @@ async def ssh_stream():
                     await websocket.send_json({"info": "Interactive Bash session started."})
                     logger.info(f"[{session_id}] Connected + interactive Bash ready with PTY.")
 
+                except asyncssh.AuthenticationError:
+                    logger.error(f"[{session_id}] Authentication failed for {username}@{host}")
+                    await websocket.send_json({"error": "❌ Authentication failed: Incorrect username or password."})
                 except asyncssh.Error as e:
                     logger.error(f"[{session_id}] SSH Error: {str(e)}")
-                    await websocket.send_json({"error": f"SSH Error: {str(e)}"})
+                    await websocket.send_json({"error": f"❌ SSH Error: {str(e)}"})
 
             # ------------------------------------------------------------------
             # 2) RUN_COMMAND
@@ -154,56 +170,6 @@ async def ssh_stream():
                     await websocket.send_json({"error": f"Write error: {str(e)}"})
 
             # ------------------------------------------------------------------
-            # 3) STOP
-            # ------------------------------------------------------------------
-            elif action == "STOP":
-                proc = session.get("proc")
-                if proc:
-                    logger.info(f"[{session_id}] Sending Ctrl-C to bash.")
-                    proc.stdin.write("\x03")  # Ctrl-C
-                    await websocket.send_json({"output": "Sent Ctrl-C."})
-                else:
-                    await websocket.send_json({"info": "No interactive shell to stop."})
-
-            # ------------------------------------------------------------------
-            # 4) LIST_FILES
-            #
-            # *** FIX: We REMOVED any $(pwd)/ logic to trust the absolute path
-            #          the Flutter app already sends us. ***
-            # ------------------------------------------------------------------
-            elif action == "LIST_FILES":
-                if session["conn"] is None:
-                    await websocket.send_json({"error": "Not connected. Send action=CONNECT first."})
-                    continue
-
-                directory = data.get("directory", ".").strip()
-
-                # We do NOT prepend $(pwd)/ or do any "cd" here. This ephemeral
-                # process won't share the interactive shell's state, so we
-                # assume the client is sending an absolute path if needed.
-                #
-                # => e.g. "ls -d -- '/var/www'/*/"
-                #
-                list_cmd = (
-                    f'ls -d -- "{directory}"/*/ 2>/dev/null | xargs -I {{}} basename {{}}'
-                )
-                logger.info(f"[{session_id}] Fetching directories for: {directory}")
-
-                try:
-                    # Create ephemeral process just for listing
-                    ephemeral = await session["conn"].create_process(list_cmd)
-                    results = []
-                    async for line in ephemeral.stdout:
-                        results.append(line.strip())
-
-                    logger.info(f"[{session_id}] Found directories: {results}")
-                    await websocket.send_json({"directories": results})
-
-                except Exception as e:
-                    logger.exception(f"[{session_id}] Error listing directories:")
-                    await websocket.send_json({"error": f"List files error: {str(e)}"})
-
-            # ------------------------------------------------------------------
             # UNKNOWN ACTION
             # ------------------------------------------------------------------
             else:
@@ -215,10 +181,6 @@ async def ssh_stream():
     # --------------------------------------------------------------------------
     except asyncio.IncompleteReadError:
         logger.warning(f"[{session_id}] IncompleteReadError.")
-    except asyncssh.AuthenticationError:
-        logger.error(f"[{session_id}] Authentication failed for {username}@{host}")
-        await websocket.send_json({"error": "❌ Authentication failed: Incorrect username or password."})
-
     except asyncssh.Error as e:
         logger.error(f"[{session_id}] SSH Error: {str(e)}")
         await websocket.send_json({"error": f"❌ SSH Error: {str(e)}"})
@@ -257,7 +219,6 @@ async def ssh_stream():
             pass
 
         logger.info(f"[{session_id}] WebSocket disconnected.")
-
 
 ###############################################################################
 # Main entry: run Hypercorn

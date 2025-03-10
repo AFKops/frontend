@@ -5,6 +5,7 @@ import 'chat_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import '../providers/theme_provider.dart';
+import '../utils/secure_storage.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -54,8 +55,6 @@ class _HomeScreenState extends State<HomeScreen> {
     String chatName = _chatNameController.text.trim();
     String sshCommand = _sshCommandController.text.trim();
     String password = _passwordController.text.trim();
-    String passwordToUse =
-        _savePassword ? password : (password.isNotEmpty ? password : "");
 
     if (chatName.isEmpty || sshCommand.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -72,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // ✅ Extract username and host from SSH command
+    // ✅ Extract username and host
     sshCommand = sshCommand.replaceFirst("ssh ", "").trim();
     List<String> parts = sshCommand.split("@");
 
@@ -87,6 +86,75 @@ class _HomeScreenState extends State<HomeScreen> {
     String username = parts[0].trim();
     String host = parts[1].trim();
 
+    // ✅ Check if password is saved and use it if available
+    String? savedPassword =
+        await SecureStorage.getPassword(chatProvider.getCurrentChatId());
+    if (savedPassword != null && password.isEmpty) {
+      password = savedPassword;
+      _passwordController.text = password; // Autofill password field
+    }
+
+    // ✅ If no password is provided or saved, prompt the user
+    if (password.isEmpty) {
+      TextEditingController passwordController = TextEditingController();
+      bool shouldSave = false;
+
+      await showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text("Enter SSH Password"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: "Password"),
+                ),
+                Row(
+                  children: [
+                    Checkbox(
+                      value: shouldSave,
+                      onChanged: (value) {
+                        shouldSave = value ?? false;
+                      },
+                    ),
+                    const Text("Save Password"),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text("Connect"),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (passwordController.text.isNotEmpty) {
+        password = passwordController.text;
+        if (shouldSave) {
+          await SecureStorage.savePassword(
+            chatProvider.getCurrentChatId(), // ✅ Fix: Correctly get chatId
+            password,
+            chatName,
+            host,
+            username,
+          );
+        }
+      }
+    }
+
     setState(() => _isConnecting = true); // ✅ Show loading indicator
 
     // ✅ Attempt SSH connection & validate authentication
@@ -94,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
       chatName: chatName,
       host: host,
       username: username,
-      password: passwordToUse,
+      password: password,
       isGeneralChat: false,
     );
 
@@ -108,6 +176,19 @@ class _HomeScreenState extends State<HomeScreen> {
           context,
           MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
         );
+      }
+
+      // ✅ Save password if checkbox is checked
+      if (_savePassword) {
+        print("⚡ Attempting to save password...");
+        await SecureStorage.savePassword(
+          chatId,
+          password,
+          chatName,
+          host,
+          username,
+        );
+        print("⚡ Password save function executed.");
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -274,14 +355,59 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Checkbox(
                           value: _savePassword,
-                          onChanged: (value) {
+                          onChanged: (value) async {
                             setState(() {
                               _savePassword = value ?? false;
                             });
+
+                            if (_savePassword &&
+                                _passwordController.text.isNotEmpty) {
+                              // ✅ Initialize `chatProvider`
+                              final chatProvider = Provider.of<ChatProvider>(
+                                  context,
+                                  listen: false);
+
+                              // ✅ Extract SSH details from the command input
+                              String sshCommand =
+                                  _sshCommandController.text.trim();
+                              if (!sshCommand.startsWith("ssh ")) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          "❌ Invalid SSH command format.")),
+                                );
+                                return;
+                              }
+
+                              sshCommand =
+                                  sshCommand.replaceFirst("ssh ", "").trim();
+                              List<String> parts = sshCommand.split("@");
+
+                              if (parts.length != 2 ||
+                                  parts[0].isEmpty ||
+                                  parts[1].isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          "❌ Invalid SSH format. Use: ssh user@host")),
+                                );
+                                return;
+                              }
+
+                              String username = parts[0].trim();
+                              String host = parts[1].trim();
+
+                              // ✅ Save the password with the correct parameters
+                              await SecureStorage.savePassword(
+                                chatProvider.getCurrentChatId(), // ✅ Chat ID
+                                _passwordController.text, // ✅ Password
+                                _chatNameController.text.trim(), // ✅ Chat Name
+                                host, // ✅ Host (Extracted from SSH Command)
+                                username, // ✅ Username (Extracted from SSH Command)
+                              );
+                            }
                           },
-                          activeColor: isDarkMode
-                              ? Colors.white
-                              : Colors.black, // ✅ Dynamic Checkbox Color
+                          activeColor: isDarkMode ? Colors.white : Colors.black,
                         ),
                         Text("Save Password",
                             style: TextStyle(

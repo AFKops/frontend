@@ -4,6 +4,8 @@ import '../providers/chat_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/secure_auth_provider.dart';
 import '../providers/secure_network_provider.dart';
+import '../utils/secure_storage.dart';
+import 'package:local_auth/local_auth.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,6 +15,21 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Store decrypted passwords keyed by chatId
+  Map<String, String?> savedPasswords = {};
+
+  /// Track whether the password is visible (true/false) per chatId
+  Map<String, bool> isPasswordVisible = {};
+
+  /// Store each chat’s display name keyed by chatId
+  Map<String, String> chatNames = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedPasswords();
+  }
+
   @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context);
@@ -99,6 +116,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
+            /// **Saved Passwords Section**
+            const SizedBox(height: 20),
+            Text("Saved Passwords",
+                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
+            savedPasswords.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: Text("No saved passwords",
+                        style: TextStyle(color: subTextColor)),
+                  )
+                : Column(
+                    children: savedPasswords.entries.map((entry) {
+                      final chatId = entry.key;
+                      final password = entry.value ?? "No password";
+                      final isVisible = isPasswordVisible[chatId] ?? false;
+
+                      // If there's no stored chatName, fall back to the chat ID
+                      final displayName = chatNames[chatId]?.isNotEmpty == true
+                          ? chatNames[chatId]!
+                          : chatId;
+
+                      return ListTile(
+                        // Show the chat name here instead of chat ID
+                        title: Text(displayName,
+                            style: TextStyle(color: textColor)),
+                        subtitle: Text(
+                          isVisible ? password : "••••••••••",
+                          style: TextStyle(color: subTextColor),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                isVisible
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                color: textColor,
+                              ),
+                              onPressed: () async {
+                                // Require biometric authentication before showing
+                                bool authenticated = await _authenticate();
+                                if (authenticated) {
+                                  setState(() {
+                                    isPasswordVisible[chatId] = !isVisible;
+                                  });
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteSavedPassword(chatId),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+
             /// **Secure Internet Settings**
             const SizedBox(height: 20),
             Text("Secure Internet",
@@ -178,16 +254,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
-
             const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
+
+  /// Fetch saved passwords from storage, plus each chat's name
+  Future<void> _loadSavedPasswords() async {
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    // For each chat ID known to ChatProvider...
+    for (var chatId in chatProvider.getChatIds()) {
+      // Retrieve the entire chat map
+      final chatObject = chatProvider.getChatById(chatId);
+
+      // Extract 'name' from the map (fall back to empty string)
+      final name = chatObject?['name'] ?? '';
+
+      // Get the stored/decrypted password
+      final password = await SecureStorage.getPassword(chatId);
+
+      // If a password is present, store it + store chat name
+      if (password != null) {
+        savedPasswords[chatId] = password;
+        chatNames[chatId] =
+            name.isNotEmpty ? name : chatId; // fallback if empty
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {}); // Refresh UI after loading
+  }
+
+  /// Biometric authentication to view password text
+  Future<bool> _authenticate() async {
+    final LocalAuthentication auth = LocalAuthentication();
+    return await auth.authenticate(
+      localizedReason: "Authenticate to view saved passwords",
+      options: const AuthenticationOptions(biometricOnly: true),
+    );
+  }
+
+  /// Delete stored password from SecureStorage and remove from local maps
+  Future<void> _deleteSavedPassword(String chatId) async {
+    await SecureStorage.deletePassword(chatId);
+    setState(() {
+      savedPasswords.remove(chatId);
+      isPasswordVisible.remove(chatId);
+      chatNames.remove(chatId);
+    });
+  }
 }
 
-/// **Reusable Styles**
+/// Reusable Styles
 const TextStyle _sectionHeaderStyle = TextStyle(
   fontSize: 16,
   fontWeight: FontWeight.bold,

@@ -19,7 +19,6 @@ dependencies:
   provider: ^6.1.2
 
   # Storage & Utilities
-  shared_preferences: ^2.5.1
   uuid: ^4.5.1
   intl: ^0.19.0
 
@@ -39,6 +38,9 @@ dependencies:
 
   # Splash Screen
   flutter_native_splash: ^2.4.0
+  encrypt: ^5.0.3
+  shared_preferences: ^2.5.2
+  flutter_secure_storage: ^8.1.0
 
 dev_dependencies:
   flutter_test:

@@ -13,8 +13,24 @@ class ChatProvider extends ChangeNotifier {
   String _currentChatId = "";
   bool _isConnected = false;
 
+  // ---------------------------------------------------------------
+  // ADD THIS METHOD so SettingsScreen can retrieve chat data by ID
+  // ---------------------------------------------------------------
+  Map<String, dynamic>? getChatById(String chatId) {
+    return _chats[chatId];
+  }
+  // ---------------------------------------------------------------
+
+  List<String> getChatIds() {
+    return _chats.keys.toList();
+  }
+
   String getCurrentPath(String chatId) {
     return _chats[chatId]?['currentDirectory'] ?? "/root";
+  }
+
+  String encodePassword(String password) {
+    return base64.encode(utf8.encode(password)); // Encode password safely
   }
 
   void updateCurrentPath(String chatId, String newPath) {
@@ -111,13 +127,16 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
+      // ✅ Encode the password before sending
+      String encodedPassword = encodePassword(password);
+
       // ✅ Wait for authentication response from WebSocket before proceeding
       Completer<String> authCompleter = Completer<String>();
 
       ssh.connectToWebSocket(
         host: host,
         username: username,
-        password: password,
+        password: encodedPassword, // Send encoded password
         onMessageReceived: (output) {
           if (output.contains("❌ Authentication failed")) {
             authCompleter.complete("FAIL");
@@ -241,16 +260,14 @@ class ChatProvider extends ChangeNotifier {
 
     if (query != null && query.isNotEmpty) {
       if (query.startsWith("/")) {
-        targetDir = query; // Absolute path case
+        targetDir = query; // Absolute path
       } else {
-        targetDir = "$targetDir/$query"; // Relative path case
+        targetDir = "$targetDir/$query"; // Relative path
       }
     }
 
-    // Ensure the path is formatted correctly (no double slashes)
     targetDir = targetDir.replaceAll("//", "/");
 
-    // Extract last directory for listing
     List<String> parts = targetDir.split("/");
     parts.removeWhere((e) => e.isEmpty);
 
@@ -314,7 +331,6 @@ class ChatProvider extends ChangeNotifier {
     final chatData = _chats[chatId];
     if (chatData == null) return "❌ Chat session not found!";
 
-    // ✅ Only add the command message to the UI if it's not silent
     if (!silent) {
       addMessage(chatId, command, isUser: true);
     }
@@ -324,15 +340,14 @@ class ChatProvider extends ChangeNotifier {
       return "❌ No SSHService found!";
     }
 
-    // ✅ Append && pwd to cd commands so Bash always responds with the new directory
+    // Append && pwd to cd commands so we always get the new directory from Bash
     if (command.startsWith("cd ")) {
       command = "$command && pwd";
     }
 
-    // ✅ Directly send the command, let Bash handle everything
     ssh.sendWebSocketCommand(command);
 
-    return null; // ✅ Prevent duplicate blank messages
+    return null;
   }
 
   // --------------------------------------------------------------------------
@@ -349,6 +364,7 @@ class ChatProvider extends ChangeNotifier {
     final messages =
         List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
 
+    // Prevent duplicate spam if the exact same line is repeated
     if (!isStreaming &&
         messages.isNotEmpty &&
         messages.last['text'] == message) {
@@ -396,7 +412,7 @@ class ChatProvider extends ChangeNotifier {
     final temp = <String, Map<String, dynamic>>{};
     _chats.forEach((key, value) {
       final copy = Map<String, dynamic>.from(value);
-      copy.remove('service'); // remove the SSHService instance
+      copy.remove('service'); // Remove the SSHService instance
       temp[key] = copy;
     });
     await prefs.setString('chat_history', jsonEncode(temp));
@@ -414,13 +430,15 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ADDED CODE: parse server output for "directories"
+  // --------------------------------------------------------------------------
+  // PARSE SERVER OUTPUT
+  // --------------------------------------------------------------------------
   void _handleServerOutput(String chatId, String rawOutput) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
 
     try {
-      // If it’s a JSON with "directories"
+      // If it’s a JSON with "directories", parse it as file suggestions
       final parsed = jsonDecode(rawOutput);
       if (parsed is Map && parsed.containsKey("directories")) {
         chatData['fileSuggestions'] = List<String>.from(parsed["directories"]);
@@ -431,12 +449,12 @@ class ChatProvider extends ChangeNotifier {
       // Not JSON => treat as normal text
     }
 
-    // If the output line is an absolute path => new cwd
+    // If the line looks like an absolute path => might be a new cwd
     final lines = rawOutput.split('\n');
     for (final line in lines) {
       if (line.startsWith('/') && !line.contains(' ')) {
         updateCurrentPath(chatId, line.trim());
-        // Immediately fetch subdirectories for the new path (no partial):
+        // Immediately fetch subdirectories for the new path
         updateFileSuggestions(chatId);
       }
     }
