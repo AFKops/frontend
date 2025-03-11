@@ -5,6 +5,7 @@ import '../providers/chat_provider.dart';
 import 'home_screen.dart';
 import '../providers/theme_provider.dart';
 import '../services/ssh_service.dart';
+import '../utils/secure_storage.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -173,69 +174,149 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // Prompts user for password.
+  // Prompts user for password, tries reconnect inline, shows error if wrong.
   Future<String?> _askForPassword(BuildContext context) async {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
-    final TextEditingController pwdCtrl = TextEditingController();
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          title: Text(
-            "Enter SSH Password",
-            style: TextStyle(
-              fontSize: 16,
-              color: isDarkMode ? Colors.white : Colors.black,
-            ),
-          ),
-          content: TextField(
-            controller: pwdCtrl,
-            obscureText: true,
-            style: TextStyle(
-              color: isDarkMode ? Colors.white : Colors.black,
-            ),
-            decoration: InputDecoration(
-              hintText: "Password",
-              hintStyle: TextStyle(
-                color: isDarkMode ? Colors.white54 : Colors.grey[700],
+        bool isLoading = false;
+        String errorMessage = "";
+        bool savePassword = false;
+        final pwdCtrl = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: isDarkMode ? Colors.black : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              filled: true,
-              fillColor: isDarkMode ? Colors.grey[900] : Colors.grey[200],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: isDarkMode ? Colors.white38 : Colors.black26,
+              title: Text(
+                "Enter SSH Password",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isDarkMode ? Colors.white : Colors.black,
                 ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              child: Text(
-                "Cancel",
-                style: TextStyle(
-                    color: isDarkMode ? Colors.white70 : Colors.black87),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (errorMessage.isNotEmpty)
+                      Text(errorMessage,
+                          style: const TextStyle(color: Colors.red)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: pwdCtrl,
+                      obscureText: true,
+                      style: TextStyle(
+                          color: isDarkMode ? Colors.white : Colors.black),
+                      decoration: InputDecoration(
+                        hintText: "Password",
+                        hintStyle: TextStyle(
+                          color: isDarkMode ? Colors.white54 : Colors.grey[700],
+                        ),
+                        filled: true,
+                        fillColor:
+                            isDarkMode ? Colors.grey[900] : Colors.grey[200],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: isDarkMode ? Colors.white38 : Colors.black26,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: savePassword,
+                          onChanged: (val) {
+                            setState(() => savePassword = val ?? false);
+                          },
+                        ),
+                        const Text("Save Password"),
+                      ],
+                    ),
+                    if (isLoading) const CircularProgressIndicator(),
+                  ],
+                ),
               ),
-              onPressed: () => Navigator.of(ctx).pop(null),
-            ),
-            TextButton(
-              child: Text(
-                "OK",
-                style:
-                    TextStyle(color: isDarkMode ? Colors.white : Colors.black),
-              ),
-              onPressed: () {
-                final entered = pwdCtrl.text.trim();
-                Navigator.of(ctx).pop(entered.isEmpty ? null : entered);
-              },
-            ),
-          ],
+              actions: [
+                TextButton(
+                  child: Text(
+                    "Cancel",
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                ),
+                TextButton(
+                  child: Text(
+                    "Connect",
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          setState(() {
+                            errorMessage = "";
+                            isLoading = true;
+                          });
+                          final typed = pwdCtrl.text.trim();
+                          if (typed.isEmpty) {
+                            setState(() {
+                              isLoading = false;
+                              errorMessage = "Password cannot be empty.";
+                            });
+                            return;
+                          }
+                          // Attempt reconnect
+                          final success = await chatProvider.reconnectAndCheck(
+                            widget.chatId,
+                            typed,
+                          );
+                          setState(() => isLoading = false);
+
+                          if (success) {
+                            if (savePassword) {
+                              final chatData =
+                                  chatProvider.getChatById(widget.chatId);
+                              if (chatData != null) {
+                                chatData['password'] = typed;
+                                chatData['passwordSaved'] = true;
+                                chatProvider.notifyListeners();
+
+                                // Also store in SecureStorage so it appears in Settings
+                                await SecureStorage.savePassword(
+                                  widget.chatId,
+                                  typed, // actual password
+                                  chatData['name'] ?? "",
+                                  chatData['host'] ?? "",
+                                  chatData['username'] ?? "",
+                                );
+                              }
+                            }
+                            Navigator.of(ctx).pop(typed);
+                          } else {
+                            setState(() {
+                              errorMessage = "Wrong password, try again.";
+                            });
+                          }
+                        },
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -253,15 +334,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (saved && savedPwd != null && savedPwd.isNotEmpty) {
       await chatProvider.reconnectChat(widget.chatId, savedPwd);
     } else {
-      final newPwd = await _askForPassword(context);
-      if (newPwd == null) return;
-      final encoded = chatProvider.encodePassword(newPwd);
-
-      // If you want ephemeral usage only, do NOT store the password again:
-      // chatData['password'] = encoded;
-      // chatData['passwordSaved'] = true;
-
-      await chatProvider.reconnectChat(widget.chatId, encoded);
+      final typedPwd = await _askForPassword(context);
+      if (typedPwd == null) {
+        return; // user canceled or never succeeded
+      }
+      // If you want ephemeral usage only, do nothing else
+      // Or if you want to do something with typedPwd, do it here
     }
   }
 

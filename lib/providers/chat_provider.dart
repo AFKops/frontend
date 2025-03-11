@@ -219,7 +219,6 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Reconnects with the given password
-  /// Reconnects a given chat with a new password and checks authentication
   Future<void> reconnectChat(String chatId, String password) async {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -274,6 +273,64 @@ class ChatProvider extends ChangeNotifier {
       _isConnected = false;
       chatData['connected'] = false;
       addMessage(chatId, "❌ Failed to reconnect: $e", isUser: false);
+    }
+  }
+
+  /// Reconnects and returns true if auth succeeded, otherwise false
+  Future<bool> reconnectAndCheck(String chatId, String password) async {
+    final chatData = _chats[chatId];
+    if (chatData == null) return false;
+
+    if (chatData['service'] == null) {
+      chatData['service'] = SSHService();
+    }
+    final ssh = chatData['service'] as SSHService?;
+    if (ssh == null) return false;
+
+    try {
+      Completer<String> authCompleter = Completer<String>();
+      ssh.connectToWebSocket(
+        host: chatData['host'],
+        username: chatData['username'],
+        password: password,
+        onMessageReceived: (line) {
+          if (line.contains("❌ Authentication failed")) {
+            authCompleter.complete("FAIL");
+          } else if (line.contains("Interactive Bash session started.")) {
+            authCompleter.complete("SUCCESS");
+          }
+          _handleServerOutput(chatId, line);
+        },
+        onError: (err) {
+          authCompleter.complete("FAIL");
+          addMessage(chatId, "❌ $err", isUser: false);
+          _isConnected = false;
+          notifyListeners();
+        },
+      );
+
+      String authResult = await authCompleter.future
+          .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
+
+      if (authResult == "SUCCESS") {
+        chatData['connected'] = true;
+        _isConnected = true;
+        addMessage(chatId, "✅ Reconnected to ${chatData['host']}",
+            isUser: false);
+        notifyListeners();
+        return true;
+      } else {
+        chatData['connected'] = false;
+        _isConnected = false;
+        addMessage(chatId, "❌ Authentication failed", isUser: false);
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _isConnected = false;
+      chatData['connected'] = false;
+      addMessage(chatId, "❌ Failed to reconnect: $e", isUser: false);
+      return false;
     }
   }
 
