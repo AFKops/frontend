@@ -77,16 +77,15 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Starts a new chat or reuses an existing one
+  /// Creates or reuses a chat, handles SSH connection and authentication
   Future<String> startNewChat({
     required String chatName,
     String host = "",
     String username = "",
     String password = "",
     bool isGeneralChat = false,
-    bool savePassword = false, // <-- NEW
+    bool savePassword = false,
   }) async {
-    // If user did NOT choose to save password, we store a blank password in the chat data.
-    // If user DID choose to save, we store the real password.
     final effectivePassword = (!isGeneralChat && savePassword) ? password : "";
     final isPwSaved = (!isGeneralChat && savePassword && password.isNotEmpty);
 
@@ -111,11 +110,8 @@ class ChatProvider extends ChangeNotifier {
       'lastActive': timestamp,
       'host': isGeneralChat ? "" : host,
       'username': isGeneralChat ? "" : username,
-
-      // We only store the password in chat data if the user opted to save it
       'password': isGeneralChat ? "" : effectivePassword,
       'passwordSaved': isPwSaved,
-
       'currentDirectory': isGeneralChat ? "" : "/root",
       'connected': isGeneralChat,
       'service': isGeneralChat ? null : SSHService(),
@@ -127,7 +123,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
     await saveChatHistory();
 
-    // If general chat, just return
     if (isGeneralChat) {
       return newChatId;
     }
@@ -142,8 +137,6 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
-      // We can still use the real password for the SSH connection,
-      // even if the user said “don’t save it.” This is ephemeral.
       String encodedPassword = encodePassword(password);
       Completer<String> authCompleter = Completer<String>();
 
@@ -171,10 +164,12 @@ class ChatProvider extends ChangeNotifier {
           .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
 
       if (authResult != "SUCCESS") {
+        addMessage(newChatId, "❌ Authentication failed", isUser: false);
         _chats.remove(newChatId);
         notifyListeners();
         return "";
       }
+
       Future.delayed(const Duration(milliseconds: 300), () {
         ssh.sendWebSocketCommand("uptime");
       });
@@ -224,15 +219,14 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Reconnects with the given password
+  /// Reconnects a given chat with a new password and checks authentication
   Future<void> reconnectChat(String chatId, String password) async {
     final chatData = _chats[chatId];
     if (chatData == null) return;
 
-    // If there's no service, create a new one now:
     if (chatData['service'] == null) {
       chatData['service'] = SSHService();
     }
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) {
       addMessage(chatId, "❌ No SSHService found for reconnect", isUser: false);
@@ -240,24 +234,45 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
+      Completer<String> authCompleter = Completer<String>();
+
       ssh.connectToWebSocket(
         host: chatData['host'],
         username: chatData['username'],
         password: password,
         onMessageReceived: (line) {
+          if (line.contains("❌ Authentication failed")) {
+            authCompleter.complete("FAIL");
+          } else if (line.contains("Interactive Bash session started.")) {
+            authCompleter.complete("SUCCESS");
+          }
           _handleServerOutput(chatId, line);
         },
         onError: (err) {
+          authCompleter.complete("FAIL");
           addMessage(chatId, "❌ $err", isUser: false);
           _isConnected = false;
           notifyListeners();
         },
       );
-      chatData['connected'] = true;
-      _isConnected = true;
-      addMessage(chatId, "✅ Reconnected to ${chatData['host']}", isUser: false);
+
+      String authResult = await authCompleter.future
+          .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
+
+      if (authResult == "SUCCESS") {
+        chatData['connected'] = true;
+        _isConnected = true;
+        addMessage(chatId, "✅ Reconnected to ${chatData['host']}",
+            isUser: false);
+      } else {
+        chatData['connected'] = false;
+        addMessage(chatId, "❌ Authentication failed", isUser: false);
+        _isConnected = false;
+        notifyListeners();
+      }
     } catch (e) {
       _isConnected = false;
+      chatData['connected'] = false;
       addMessage(chatId, "❌ Failed to reconnect: $e", isUser: false);
     }
   }
@@ -349,25 +364,32 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Adds a message to the given chat
-  void addMessage(String chatId, String message,
-      {required bool isUser, bool isStreaming = false}) {
+  void addMessage(
+    String chatId,
+    String message, {
+    required bool isUser,
+    bool isStreaming = false,
+    bool isSystem = false, // <-- NEW
+  }) {
     if (!_chats.containsKey(chatId)) return;
     final messages =
         List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
+
+    // Prevent duplicates
     if (!isStreaming &&
         messages.isNotEmpty &&
         messages.last['text'] == message) {
       return;
     }
-    if (isStreaming && !isUser) {
-      _chats[chatId]?['messages'].add({
-        'text': message,
-        'isUser': false,
-        'isStreaming': true,
-      });
-    } else {
-      _chats[chatId]?['messages'].add({'text': message, 'isUser': isUser});
-    }
+
+    // Add the message
+    _chats[chatId]?['messages'].add({
+      'text': message,
+      'isUser': isUser,
+      'isStreaming': isStreaming,
+      'isSystem': isSystem, // <-- store it
+    });
+
     _chats[chatId]?['lastActive'] = DateTime.now().toIso8601String();
     saveChatHistory();
     notifyListeners();

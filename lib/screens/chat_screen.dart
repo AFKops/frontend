@@ -174,24 +174,62 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // Prompts user for password.
   Future<String?> _askForPassword(BuildContext context) async {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
     final TextEditingController pwdCtrl = TextEditingController();
+
     return showDialog<String>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text("Enter SSH Password"),
+          backgroundColor: isDarkMode ? Colors.black : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Text(
+            "Enter SSH Password",
+            style: TextStyle(
+              fontSize: 16,
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
+          ),
           content: TextField(
             controller: pwdCtrl,
             obscureText: true,
-            decoration: const InputDecoration(hintText: "Password"),
+            style: TextStyle(
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
+            decoration: InputDecoration(
+              hintText: "Password",
+              hintStyle: TextStyle(
+                color: isDarkMode ? Colors.white54 : Colors.grey[700],
+              ),
+              filled: true,
+              fillColor: isDarkMode ? Colors.grey[900] : Colors.grey[200],
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: isDarkMode ? Colors.white38 : Colors.black26,
+                ),
+              ),
+            ),
           ),
           actions: [
             TextButton(
-              child: const Text("CANCEL"),
+              child: Text(
+                "Cancel",
+                style: TextStyle(
+                    color: isDarkMode ? Colors.white70 : Colors.black87),
+              ),
               onPressed: () => Navigator.of(ctx).pop(null),
             ),
             TextButton(
-              child: const Text("OK"),
+              child: Text(
+                "OK",
+                style:
+                    TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+              ),
               onPressed: () {
                 final entered = pwdCtrl.text.trim();
                 Navigator.of(ctx).pop(entered.isEmpty ? null : entered);

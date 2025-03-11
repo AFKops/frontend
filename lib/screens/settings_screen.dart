@@ -297,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Delete stored password from SecureStorage and remove from local maps
+  /// Deletes stored password from SecureStorage and removes it from memory
   Future<void> _deleteSavedPassword(String chatId) async {
     await SecureStorage.deletePassword(chatId);
     setState(() {
@@ -305,6 +305,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       isPasswordVisible.remove(chatId);
       chatNames.remove(chatId);
     });
+
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final chatData = chatProvider.getChatById(chatId);
+    if (chatData != null) {
+      // Remove the password fields in memory
+      chatData['password'] = "";
+      chatData['passwordSaved'] = false;
+
+      // Optional: Force chat as disconnected, so it won’t auto-reconnect
+      chatData['connected'] = false;
+      chatProvider.notifyListeners();
+      await chatProvider.saveChatHistory();
+    }
   }
 }
 
