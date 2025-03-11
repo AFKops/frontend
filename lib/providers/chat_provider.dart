@@ -345,6 +345,7 @@ class ChatProvider extends ChangeNotifier {
     if (chatData == null || chatData['connected'] != true) return;
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
+
     String targetDir = chatData['currentDirectory'] ?? "/";
     if (query != null && query.isNotEmpty) {
       if (query.startsWith("/")) {
@@ -353,11 +354,14 @@ class ChatProvider extends ChangeNotifier {
         targetDir = "$targetDir/$query";
       }
     }
+
     targetDir = targetDir.replaceAll("//", "/");
     List<String> parts = targetDir.split("/");
     parts.removeWhere((e) => e.isEmpty);
+
     if (parts.isNotEmpty) {
       targetDir = "/${parts.join("/")}";
+      // Call the new listFiles:
       ssh.listFiles(targetDir);
     }
   }
