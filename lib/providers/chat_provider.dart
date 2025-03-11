@@ -6,8 +6,6 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 import '../services/ssh_service.dart';
 
-Timer? _debounce;
-
 class ChatProvider extends ChangeNotifier {
   Map<String, Map<String, dynamic>> _chats = {};
   String _currentChatId = "";
@@ -41,37 +39,36 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // Exposes the full chats map
+  // Returns the entire chats map
   Map<String, Map<String, dynamic>> get chats => _chats;
 
-  // Constructor loads existing chat history
+  // Loads existing chat history on creation
   ChatProvider() {
     loadChatHistory();
   }
 
-  // Returns the messages for a chat
+  // Returns the messages for a given chat
   List<Map<String, dynamic>> getMessages(String chatId) {
     return List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
   }
 
-  // Gets the name of a chat, or formats the timestamp if none
+  // Gets the chat name or timestamp if none
   String getChatName(String chatId) {
     return _chats[chatId]?['name'] ??
         formatTimestamp(
-          _chats[chatId]?['timestamp'] ?? DateTime.now().toIso8601String(),
-        );
+            _chats[chatId]?['timestamp'] ?? DateTime.now().toIso8601String());
   }
 
-  // Utility to format ISO8601 timestamps
+  // Formats ISO8601 timestamps
   String formatTimestamp(String timestamp) {
     DateTime dateTime = DateTime.parse(timestamp);
     return DateFormat('MMM d, yyyy | h:mm a').format(dateTime);
   }
 
-  // Checks if we're connected
+  // Checks if any chat is connected
   bool isConnected() => _isConnected;
 
-  // Goes up one directory
+  // Goes up one directory for a given chat
   void goBackDirectory(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -79,7 +76,7 @@ class ChatProvider extends ChangeNotifier {
     ssh?.sendWebSocketCommand("cd .. && pwd");
   }
 
-  // Creates a new chat or reuses an existing one if host/username/name all match
+  // Starts a new chat or reuses an existing one
   Future<String> startNewChat({
     required String chatName,
     String host = "",
@@ -87,19 +84,15 @@ class ChatProvider extends ChangeNotifier {
     String password = "",
     bool isGeneralChat = false,
   }) async {
-    // If not a general chat, try to find one with the same host, username, AND name
     if (!isGeneralChat) {
       String? existingChatId = _findExistingSshChat(host, username, chatName);
       if (existingChatId != null) {
-        // Reuse that chat
         setCurrentChat(existingChatId);
         notifyListeners();
         await saveChatHistory();
         return existingChatId;
       }
     }
-
-    // Otherwise, create a brand-new chat
     var uuid = const Uuid();
     String newChatId = isGeneralChat ? "general_${uuid.v4()}" : uuid.v4();
     String timestamp = DateTime.now().toIso8601String();
@@ -124,12 +117,9 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
     await saveChatHistory();
 
-    // If general chat, we don't need SSH
     if (isGeneralChat) {
       return newChatId;
     }
-
-    // Otherwise, proceed with SSH connection
     final chatData = _chats[newChatId];
     if (chatData == null) {
       return "";
@@ -171,16 +161,13 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
         return "";
       }
-
       Future.delayed(const Duration(milliseconds: 300), () {
         ssh.sendWebSocketCommand("uptime");
       });
-
       chatData['connected'] = true;
       _isConnected = true;
       addMessage(newChatId, "✅ Connected to $host", isUser: false);
       notifyListeners();
-
       return newChatId;
     } catch (e) {
       _chats.remove(newChatId);
@@ -189,7 +176,7 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // Finds an existing SSH chat by the same host, username, AND name
+  // Finds an existing SSH chat by host/username/name
   String? _findExistingSshChat(String host, String username, String chatName) {
     for (final entry in _chats.entries) {
       final map = entry.value;
@@ -202,7 +189,7 @@ class ChatProvider extends ChangeNotifier {
     return null;
   }
 
-  // Sets the current chat
+  // Sets the current chatId
   void setCurrentChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       _currentChatId = chatId;
@@ -210,10 +197,10 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // Returns the current chatId
+  // Gets the current chatId
   String getCurrentChatId() => _currentChatId;
 
-  // Disconnects a chat
+  // Disconnects a given chat
   void disconnectChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       _chats[chatId]?['connected'] = false;
@@ -222,10 +209,15 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // Reconnects using password
+  // Reconnects with the given password
   Future<void> reconnectChat(String chatId, String password) async {
     final chatData = _chats[chatId];
     if (chatData == null) return;
+
+    // If there's no service, create a new one now:
+    if (chatData['service'] == null) {
+      chatData['service'] = SSHService();
+    }
 
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) {
@@ -261,14 +253,12 @@ class ChatProvider extends ChangeNotifier {
     return _chats.containsKey(chatId) && (_chats[chatId]?['connected'] == true);
   }
 
-  // Retrieves file suggestions (for "cd ")
+  // Updates file suggestions for cd commands
   Future<void> updateFileSuggestions(String chatId, {String? query}) async {
     final chatData = _chats[chatId];
     if (chatData == null || chatData['connected'] != true) return;
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
-
     String targetDir = chatData['currentDirectory'] ?? "/";
     if (query != null && query.isNotEmpty) {
       if (query.startsWith("/")) {
@@ -280,29 +270,27 @@ class ChatProvider extends ChangeNotifier {
     targetDir = targetDir.replaceAll("//", "/");
     List<String> parts = targetDir.split("/");
     parts.removeWhere((e) => e.isEmpty);
-
     if (parts.isNotEmpty) {
       targetDir = "/${parts.join("/")}";
       ssh.listFiles(targetDir);
     }
   }
 
-  // Determines if a command is streaming
+  // Checks if a command is a streaming command
   bool isStreamingCommand(String command) {
     final streamingCommands = ["journalctl --follow", "tail -f", "htop"];
     return streamingCommands.any((cmd) => command.startsWith(cmd));
   }
 
-  // Checks if chat is streaming
+  // Checks if a chat is currently streaming
   bool isStreaming(String chatId) {
     return _chats[chatId]?['isStreaming'] == true;
   }
 
-  // Starts streaming
+  // Starts streaming for a given chat
   void startStreaming(String chatId, String command) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) {
       addMessage(chatId, "❌ No SSHService for streaming", isUser: false);
@@ -315,26 +303,23 @@ class ChatProvider extends ChangeNotifier {
     addMessage(chatId, "📡 Streaming started: $command", isUser: false);
   }
 
-  // Stops streaming
+  // Stops streaming for a given chat
   void stopStreaming(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
-
     ssh.stopCurrentProcess();
     chatData['isStreaming'] = false;
     addMessage(chatId, "❌ Streaming stopped.", isUser: false);
     notifyListeners();
   }
 
-  // Sends a command (cd, etc.)
+  // Sends a command to a given chat
   Future<String?> sendCommand(String chatId, String command,
       {bool silent = false}) async {
     final chatData = _chats[chatId];
     if (chatData == null) return "❌ Chat session not found!";
-
     if (!silent) {
       addMessage(chatId, command, isUser: true);
     }
@@ -349,7 +334,7 @@ class ChatProvider extends ChangeNotifier {
     return null;
   }
 
-  // Adds a message to the chat
+  // Adds a message to the given chat
   void addMessage(String chatId, String message,
       {required bool isUser, bool isStreaming = false}) {
     if (!_chats.containsKey(chatId)) return;
@@ -396,7 +381,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Saves chat history to SharedPreferences
+  // Saves chat history
   Future<void> saveChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final temp = <String, Map<String, dynamic>>{};
@@ -408,24 +393,29 @@ class ChatProvider extends ChangeNotifier {
     await prefs.setString('chat_history', jsonEncode(temp));
   }
 
-  // Loads chat history from SharedPreferences
+  // Loads chat history
   Future<void> loadChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final storedChats = prefs.getString('chat_history');
     if (storedChats != null) {
       final decoded = jsonDecode(storedChats) as Map<String, dynamic>;
       decoded.forEach((key, val) {
-        _chats[key] = Map<String, dynamic>.from(val);
+        final map = Map<String, dynamic>.from(val);
+
+        // Keep host, username, password, etc. but always mark the chat as disconnected.
+        map['connected'] = false;
+        map['service'] = null; // ensure no stale service object
+
+        _chats[key] = map;
       });
     }
     notifyListeners();
   }
 
-  // Handles server output
+  // Handles SSH server output
   void _handleServerOutput(String chatId, String rawOutput) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
-
     try {
       final parsed = jsonDecode(rawOutput);
       if (parsed is Map && parsed.containsKey("directories")) {
@@ -433,10 +423,7 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
         return;
       }
-    } catch (_) {
-      // Not JSON => treat as text
-    }
-
+    } catch (_) {}
     final lines = rawOutput.split('\n');
     for (final line in lines) {
       if (line.startsWith('/') && !line.contains(' ')) {
@@ -444,13 +431,11 @@ class ChatProvider extends ChangeNotifier {
         updateFileSuggestions(chatId);
       }
     }
-
     if (chatData.containsKey('lastCommandOutput')) {
-      chatData['lastCommandOutput'] += "\n" + rawOutput;
+      chatData['lastCommandOutput'] += "\n$rawOutput";
     } else {
       chatData['lastCommandOutput'] = rawOutput;
     }
-
     Future.delayed(const Duration(milliseconds: 100), () {
       if (chatData.containsKey('lastCommandOutput')) {
         addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
