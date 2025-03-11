@@ -208,16 +208,21 @@ class _ChatScreenState extends State<ChatScreen> {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final chatData = chatProvider.getChatById(widget.chatId);
     if (chatData == null) return;
+
     final saved = chatData['passwordSaved'] == true;
     final savedPwd = chatData['password'];
+
     if (saved && savedPwd != null && savedPwd.isNotEmpty) {
       await chatProvider.reconnectChat(widget.chatId, savedPwd);
     } else {
       final newPwd = await _askForPassword(context);
       if (newPwd == null) return;
       final encoded = chatProvider.encodePassword(newPwd);
-      chatData['password'] = encoded;
-      chatData['passwordSaved'] = true;
+
+      // If you want ephemeral usage only, do NOT store the password again:
+      // chatData['password'] = encoded;
+      // chatData['passwordSaved'] = true;
+
       await chatProvider.reconnectChat(widget.chatId, encoded);
     }
   }

@@ -164,6 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
       username: username,
       password: password,
       isGeneralChat: false,
+      savePassword: _savePassword,
     );
 
     setState(() => _isConnecting = false); // ✅ Hide loading indicator

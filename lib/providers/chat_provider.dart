@@ -83,7 +83,13 @@ class ChatProvider extends ChangeNotifier {
     String username = "",
     String password = "",
     bool isGeneralChat = false,
+    bool savePassword = false, // <-- NEW
   }) async {
+    // If user did NOT choose to save password, we store a blank password in the chat data.
+    // If user DID choose to save, we store the real password.
+    final effectivePassword = (!isGeneralChat && savePassword) ? password : "";
+    final isPwSaved = (!isGeneralChat && savePassword && password.isNotEmpty);
+
     if (!isGeneralChat) {
       String? existingChatId = _findExistingSshChat(host, username, chatName);
       if (existingChatId != null) {
@@ -93,6 +99,7 @@ class ChatProvider extends ChangeNotifier {
         return existingChatId;
       }
     }
+
     var uuid = const Uuid();
     String newChatId = isGeneralChat ? "general_${uuid.v4()}" : uuid.v4();
     String timestamp = DateTime.now().toIso8601String();
@@ -104,8 +111,11 @@ class ChatProvider extends ChangeNotifier {
       'lastActive': timestamp,
       'host': isGeneralChat ? "" : host,
       'username': isGeneralChat ? "" : username,
-      'password': isGeneralChat ? "" : password,
-      'passwordSaved': password.isNotEmpty && !isGeneralChat,
+
+      // We only store the password in chat data if the user opted to save it
+      'password': isGeneralChat ? "" : effectivePassword,
+      'passwordSaved': isPwSaved,
+
       'currentDirectory': isGeneralChat ? "" : "/root",
       'connected': isGeneralChat,
       'service': isGeneralChat ? null : SSHService(),
@@ -117,9 +127,11 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
     await saveChatHistory();
 
+    // If general chat, just return
     if (isGeneralChat) {
       return newChatId;
     }
+
     final chatData = _chats[newChatId];
     if (chatData == null) {
       return "";
@@ -130,6 +142,8 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
+      // We can still use the real password for the SSH connection,
+      // even if the user said “don’t save it.” This is ephemeral.
       String encodedPassword = encodePassword(password);
       Completer<String> authCompleter = Completer<String>();
 
