@@ -11,7 +11,7 @@ class SSHService {
   bool _isConnected = false;
   Function(String)? onMessageReceived;
   Function(String)? onError;
-  Function()? onDisconnected; // NEW
+  Function()? onDisconnected;
 
   Timer? _heartbeatTimer;
 
@@ -25,11 +25,11 @@ class SSHService {
     Function()? onDisconnected,
   }) async {
     if (_channel != null && _isConnected) {
-      print("🔄 WebSocket is already connected. Reusing connection...");
+      print("WebSocket is already connected. Reusing connection...");
       return;
     }
 
-    print("🌐 Connecting to WebSocket: $wsUrl");
+    print("Connecting to WebSocket: $wsUrl");
     this.onMessageReceived = onMessageReceived;
     this.onError = onError;
     this.onDisconnected = onDisconnected;
@@ -37,20 +37,15 @@ class SSHService {
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     _isConnected = true;
 
-    // 🔐 Fetch the AES key from the server
     final encryptionKey = await EncryptionService.getEncryptionKey();
     if (encryptionKey == null) {
-      onError("❌ Failed to fetch encryption key");
+      onError("Failed to fetch encryption key");
       return;
     }
 
-    // 👇 Store original for logging ONLY
-    final originalPassword = password;
-
-    // 🔐 Encrypt using originalPassword
     final encryptedHost = encryptFernet(host, encryptionKey);
     final encryptedUsername = encryptFernet(username, encryptionKey);
-    final encryptedPassword = encryptFernet(originalPassword, encryptionKey);
+    final encryptedPassword = encryptFernet(password, encryptionKey);
 
     final connectMsg = {
       "action": "CONNECT",
@@ -59,7 +54,7 @@ class SSHService {
       "password": encryptedPassword,
     };
 
-    print("📤 Sending encrypted CONNECT action");
+    print("Sending encrypted CONNECT action");
     _channel?.sink.add(jsonEncode(connectMsg));
 
     _startHeartbeat();
@@ -79,28 +74,29 @@ class SSHService {
         }
       },
       onError: (error) {
-        print("⚠️ WebSocket Error: $error");
+        print("WebSocket Error: $error");
         _handleDisconnect();
         onError('WebSocket error: $error');
       },
       onDone: () {
-        print("🔻 WebSocket connection closed.");
+        print("WebSocket connection closed.");
         _handleDisconnect();
         onError('WebSocket connection closed');
       },
     );
   }
 
+  /// Handles a WebSocket disconnection
   void _handleDisconnect() {
     _isConnected = false;
     _channel = null;
     _stopHeartbeat();
-
     if (onDisconnected != null) {
-      onDisconnected!(); // This will notify the ChatProvider
+      onDisconnected!();
     }
   }
 
+  /// Sends periodic heartbeat messages
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -110,59 +106,64 @@ class SSHService {
     });
   }
 
+  /// Stops sending heartbeat messages
   void _stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
   }
 
+  /// Sends a command to the remote shell
   void sendWebSocketCommand(String command) {
     if (_channel == null || !_isConnected) {
-      print("❌ Not connected. Please connect first.");
+      print("Not connected. Please connect first.");
       return;
     }
     final msg = {"action": "RUN_COMMAND", "command": command};
-    print("📤 Sending RUN_COMMAND: $msg");
+    print("Sending RUN_COMMAND: $msg");
     _channel?.sink.add(jsonEncode(msg));
   }
 
+  /// Lists files in a given directory
   void listFiles(String directory) {
     if (_channel == null || !_isConnected) {
-      print("❌ Not connected. Please connect first.");
+      print("Not connected. Please connect first.");
       return;
     }
     final msg = {"action": "LIST_FILES", "directory": directory};
-    print("📤 Sending LIST_FILES: $msg");
+    print("Sending LIST_FILES: $msg");
     _channel?.sink.add(jsonEncode(msg));
   }
 
+  /// Stops the current remote process
   void stopCurrentProcess() {
     if (_channel == null || !_isConnected) {
-      print("❌ Not connected. Please connect first.");
+      print("Not connected. Please connect first.");
       return;
     }
     final msg = {"action": "STOP"};
-    print("📤 Sending STOP action");
+    print("Sending STOP action");
     _channel?.sink.add(jsonEncode(msg));
   }
 
+  /// Closes the WebSocket connection
   void closeWebSocket() {
     if (_channel != null) {
       _channel?.sink.close(status.goingAway);
-      print("🔻 WebSocket Closed.");
+      print("WebSocket Closed.");
       _channel = null;
       _isConnected = false;
       _stopHeartbeat();
     }
   }
 
+  /// Sends a Ctrl+C signal
   void sendCtrlC() {
     if (_channel == null || !_isConnected) {
-      print("❌ Not connected. Please connect first.");
+      print("Not connected. Please connect first.");
       return;
     }
-
     final msg = {"action": "CTRL_C"};
-    print("📤 Sending CTRL_C");
+    print("Sending CTRL_C");
     _channel?.sink.add(jsonEncode(msg));
   }
 }

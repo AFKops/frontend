@@ -476,7 +476,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // Directory suggestion row, shown above the input bar
-  // Directory suggestion row, shown above the input bar
   Widget _buildSuggestionRow() {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;

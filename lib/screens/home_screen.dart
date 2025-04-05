@@ -21,25 +21,21 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _chatMessageController = TextEditingController();
   bool _obscurePassword = true;
   bool _isConnecting = false;
-  bool _savePassword = false; // ✅ Checkbox for saving passwords
+  bool _savePassword = false;
 
-  /// ✅ **General Chat (No SSH)**
+  /// Starts a general chat (no SSH)
   void _startGeneralChat(BuildContext context) async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     String message = _chatMessageController.text.trim();
-
     if (message.isEmpty) return;
-
     String chatId = await chatProvider.startNewChat(
       chatName: "General Chat - ${DateTime.now().toLocal()}",
-      host: "", // ✅ No SSH details
+      host: "",
       username: "",
       password: "",
-      isGeneralChat: true, // ✅ Mark it as a general chat
+      isGeneralChat: true,
     );
-
     _chatMessageController.clear();
-
     if (mounted) {
       chatProvider.setCurrentChat(chatId);
       Navigator.push(
@@ -49,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// ✅ **Connect to SSH and retry if it fails**
+  /// Connects to a remote server over SSH
   void _connectToServer(BuildContext context) async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     String chatName = _chatNameController.text.trim();
@@ -63,7 +59,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
-
     if (!sshCommand.startsWith("ssh ")) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("❌ Invalid SSH command format.")),
@@ -71,10 +66,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // ✅ Extract username and host
     sshCommand = sshCommand.replaceFirst("ssh ", "").trim();
     List<String> parts = sshCommand.split("@");
-
     if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -86,19 +79,16 @@ class _HomeScreenState extends State<HomeScreen> {
     String username = parts[0].trim();
     String host = parts[1].trim();
 
-    // ✅ Check if password is saved and use it if available
     String? savedPassword =
         await SecureStorage.getPassword(chatProvider.getCurrentChatId());
     if (savedPassword != null && password.isEmpty) {
       password = savedPassword;
-      _passwordController.text = password; // Autofill password field
+      _passwordController.text = password;
     }
 
-    // ✅ If no password is provided or saved, prompt the user
     if (password.isEmpty) {
       TextEditingController passwordController = TextEditingController();
       bool shouldSave = false;
-
       await showDialog(
         context: context,
         builder: (context) {
@@ -145,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
         password = passwordController.text;
         if (shouldSave) {
           await SecureStorage.savePassword(
-            chatProvider.getCurrentChatId(), // ✅ Fix: Correctly get chatId
+            chatProvider.getCurrentChatId(),
             password,
             chatName,
             host,
@@ -155,8 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    setState(() => _isConnecting = true); // ✅ Show loading indicator
-    // ✅ Attempt SSH connection & validate authentication
+    setState(() => _isConnecting = true);
     String chatId = await chatProvider.startNewChat(
       chatName: chatName,
       host: host,
@@ -165,10 +154,8 @@ class _HomeScreenState extends State<HomeScreen> {
       isGeneralChat: false,
       savePassword: _savePassword,
     );
+    setState(() => _isConnecting = false);
 
-    setState(() => _isConnecting = false); // ✅ Hide loading indicator
-
-    // ✅ Authentication Validation: Proceed only if authentication succeeds
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
       chatProvider.setCurrentChat(chatId);
       if (mounted) {
@@ -177,10 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
           MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
         );
       }
-
-      // ✅ Save password if checkbox is checked
       if (_savePassword) {
-        print("⚡ Attempting to save password...");
         await SecureStorage.savePassword(
           chatId,
           password,
@@ -188,7 +172,6 @@ class _HomeScreenState extends State<HomeScreen> {
           host,
           username,
         );
-        print("⚡ Password save function executed.");
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -198,7 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// ✅ **Attempts SSH Connection & Only Retries If It Fails**
+  /// Attempts SSH connection and retries if it fails
   Future<String> _attemptConnection(ChatProvider chatProvider, String chatName,
       String host, String username, String password) async {
     String chatId = await chatProvider.startNewChat(
@@ -206,51 +189,40 @@ class _HomeScreenState extends State<HomeScreen> {
       host: host,
       username: username,
       password: password,
-      isGeneralChat: false, // ✅ Mark as SSH chat
+      isGeneralChat: false,
     );
-
-    // ✅ **Only Retry If Chat Is Not Active**
     if (chatId.isEmpty || !chatProvider.isChatActive(chatId)) {
-      await Future.delayed(
-          const Duration(seconds: 1)); // ✅ Short delay before retrying
+      await Future.delayed(const Duration(seconds: 1));
       String retryChatId = await chatProvider.startNewChat(
         chatName: chatName,
         host: host,
         username: username,
         password: password,
-        isGeneralChat: false, // ✅ Mark as SSH chat
+        isGeneralChat: false,
       );
-
-      // ✅ **Only return retryChatId if it actually succeeded**
       return chatProvider.isChatActive(retryChatId) ? retryChatId : chatId;
     }
-
-    return chatId; // ✅ First attempt worked, no retry needed
+    return chatId;
   }
 
-  /// ✅ **Reusable TextField Widget**
+  /// Builds a single text field widget
   Widget _buildTextField(TextEditingController controller, String hintText,
       bool obscureText, bool isDarkMode,
       {bool isPassword = false}) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
-      style: TextStyle(
-          color:
-              isDarkMode ? Colors.white : Colors.black), // ✅ Dynamic Text Color
+      style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: TextStyle(
-            color: isDarkMode
-                ? Colors.grey[500]
-                : Colors.grey[700]), // ✅ Dynamic Hint Color
+        hintStyle:
+            TextStyle(color: isDarkMode ? Colors.grey[500] : Colors.grey[700]),
         filled: true,
-        fillColor: Colors.transparent, // ✅ Transparent Background
+        fillColor: Colors.transparent,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: isDarkMode ? Colors.white54 : Colors.black26,
-              width: 1), // ✅ Dynamic Border
+              color: isDarkMode ? Colors.white54 : Colors.black26, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -266,9 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ? IconButton(
                 icon: Icon(
                     obscureText ? Icons.visibility : Icons.visibility_off,
-                    color: isDarkMode
-                        ? Colors.white
-                        : Colors.black), // ✅ Dynamic Icon Color
+                    color: isDarkMode ? Colors.white : Colors.black),
                 onPressed: () {
                   setState(() {
                     _obscurePassword = !_obscurePassword;
@@ -282,44 +252,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context); // ✅ Get theme
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final isDarkMode = themeProvider.isDarkMode;
 
     return Scaffold(
-      backgroundColor:
-          isDarkMode ? const Color(0xFF0D0D0D) : Colors.white, // ✅ Dynamic
+      backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(Icons.menu,
-              color: isDarkMode
-                  ? Colors.white
-                  : Colors.black), // ✅ Chat History Icon
+          icon:
+              Icon(Icons.menu, color: isDarkMode ? Colors.white : Colors.black),
           onPressed: () {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                  builder: (context) =>
-                      const HistoryScreen()), // ✅ Open Chat History
+              MaterialPageRoute(builder: (context) => const HistoryScreen()),
             );
           },
         ),
         title: const Text("AFKOps"),
-        backgroundColor:
-            isDarkMode ? const Color(0xFF0D0D0D) : Colors.white, // ✅ Dynamic
+        backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
         iconTheme:
             IconThemeData(color: isDarkMode ? Colors.white : Colors.black),
         actions: [
           IconButton(
             icon: Icon(Icons.settings,
-                color: isDarkMode
-                    ? Colors.white
-                    : Colors.black), // ✅ Settings Icon
+                color: isDarkMode ? Colors.white : Colors.black),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (context) =>
-                        const SettingsScreen()), // ✅ Open Settings
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
             },
           ),
@@ -359,15 +319,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             setState(() {
                               _savePassword = value ?? false;
                             });
-
                             if (_savePassword &&
                                 _passwordController.text.isNotEmpty) {
-                              // ✅ Initialize `chatProvider`
                               final chatProvider = Provider.of<ChatProvider>(
                                   context,
                                   listen: false);
-
-                              // ✅ Extract SSH details from the command input
                               String sshCommand =
                                   _sshCommandController.text.trim();
                               if (!sshCommand.startsWith("ssh ")) {
@@ -378,11 +334,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 );
                                 return;
                               }
-
                               sshCommand =
                                   sshCommand.replaceFirst("ssh ", "").trim();
                               List<String> parts = sshCommand.split("@");
-
                               if (parts.length != 2 ||
                                   parts[0].isEmpty ||
                                   parts[1].isEmpty) {
@@ -393,17 +347,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                 );
                                 return;
                               }
-
                               String username = parts[0].trim();
                               String host = parts[1].trim();
-
-                              // ✅ Save the password with the correct parameters
                               await SecureStorage.savePassword(
-                                chatProvider.getCurrentChatId(), // ✅ Chat ID
-                                _passwordController.text, // ✅ Password
-                                _chatNameController.text.trim(), // ✅ Chat Name
-                                host, // ✅ Host (Extracted from SSH Command)
-                                username, // ✅ Username (Extracted from SSH Command)
+                                chatProvider.getCurrentChatId(),
+                                _passwordController.text,
+                                _chatNameController.text.trim(),
+                                host,
+                                username,
                               );
                             }
                           },
@@ -411,9 +362,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         Text("Save Password",
                             style: TextStyle(
-                                color: isDarkMode
-                                    ? Colors.white
-                                    : Colors.black)), // ✅ Dynamic
+                                color:
+                                    isDarkMode ? Colors.white : Colors.black)),
                       ],
                     ),
                     _isConnecting
@@ -421,12 +371,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         : ElevatedButton(
                             onPressed: () => _connectToServer(context),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isDarkMode
-                                  ? Colors.white
-                                  : Colors.black, // ✅ Dynamic Button Color
-                              foregroundColor: isDarkMode
-                                  ? Colors.black
-                                  : Colors.white, // ✅ Dynamic Text Color
+                              backgroundColor:
+                                  isDarkMode ? Colors.white : Colors.black,
+                              foregroundColor:
+                                  isDarkMode ? Colors.black : Colors.white,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 40, vertical: 12),
                               shape: RoundedRectangleBorder(
@@ -435,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     color: isDarkMode
                                         ? Colors.white
                                         : Colors.black,
-                                    width: 1), // ✅ Border
+                                    width: 1),
                               ),
                             ),
                             child: const Text("Connect"),
@@ -452,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// ✅ **Chat Box Now Creates General Chat**
+  /// Builds the chat input box for a general chat
   Widget _chatInputBox(bool isDarkMode) {
     return Padding(
       padding: const EdgeInsets.all(10.0),
@@ -461,19 +409,16 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: TextField(
               controller: _chatMessageController,
-              style: TextStyle(
-                  color: isDarkMode ? Colors.white : Colors.black), // ✅ Dynamic
+              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
               decoration: InputDecoration(
                 hintText: "Start a chat...",
                 hintStyle: TextStyle(
-                    color: isDarkMode
-                        ? Colors.grey[500]
-                        : Colors.grey[700]), // ✅ Dynamic
+                    color: isDarkMode ? Colors.grey[500] : Colors.grey[700]),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
                   borderSide: BorderSide(
                       color: isDarkMode ? Colors.white54 : Colors.black26,
-                      width: 1), // ✅ Dynamic Border
+                      width: 1),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
@@ -488,32 +433,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 1),
                 ),
                 filled: true,
-                fillColor: Colors.transparent, // ✅ Transparent Background
+                fillColor: Colors.transparent,
               ),
             ),
           ),
           IconButton(
             icon: Icon(Icons.send,
-                color: isDarkMode
-                    ? Colors.white
-                    : Colors.black), // ✅ Dynamic Button Color
+                color: isDarkMode ? Colors.white : Colors.black),
             onPressed: () async {
               String message = _chatMessageController.text.trim();
               if (message.isEmpty) return;
-
               _chatMessageController.clear();
-
               final chatProvider =
                   Provider.of<ChatProvider>(context, listen: false);
-
               String chatId = await chatProvider.startNewChat(
                 chatName: "General Chat",
                 isGeneralChat: true,
               );
-
               chatProvider.setCurrentChat(chatId);
               chatProvider.addMessage(chatId, message, isUser: true);
-
               if (mounted) {
                 Navigator.push(
                   context,

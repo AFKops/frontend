@@ -6,7 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 class SecureNetworkProvider extends ChangeNotifier {
   bool _isSecureInternetEnabled = false;
   List<String> _trustedNetworks = [];
-  List<String> _allNetworks = []; // Stores all networks ever connected
+  List<String> _allNetworks = [];
 
   bool get isSecureInternetEnabled => _isSecureInternetEnabled;
   List<String> get trustedNetworks => _trustedNetworks;
@@ -16,8 +16,7 @@ class SecureNetworkProvider extends ChangeNotifier {
     _loadSecureSettings();
   }
 
-  /// Load settings from storage
-  /// **Load settings from storage** (DO NOT call `getCurrentWifi()` here)
+  /// Loads settings from storage
   Future<void> _loadSecureSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _isSecureInternetEnabled = prefs.getBool('secure_internet') ?? false;
@@ -26,53 +25,45 @@ class SecureNetworkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// **NEW: Trigger Network Security Check (Only when user reaches HomeScreen)**
+  /// Checks the current network and shows an alert if untrusted
   Future<void> triggerNetworkCheck(BuildContext context) async {
     if (!_isSecureInternetEnabled) return;
-
     String? currentWifi = await getCurrentWifi();
     if (currentWifi == null) return;
-
-    addToAllNetworks(currentWifi); // Ensure it's stored
+    addToAllNetworks(currentWifi);
     bool isTrusted = await isCurrentNetworkTrusted();
-
     if (!isTrusted) {
       _showUntrustedNetworkAlert(context, currentWifi);
     }
   }
 
-  /// Toggle Secure Internet option
+  /// Toggles Secure Internet
   Future<void> toggleSecureInternet(BuildContext context) async {
     _isSecureInternetEnabled = !_isSecureInternetEnabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('secure_internet', _isSecureInternetEnabled);
     notifyListeners();
-
-    // 🔥 **NEW: Immediately check current network**
     if (_isSecureInternetEnabled) {
       await triggerNetworkCheck(context);
     }
   }
 
-  /// **Check if Location Services are Enabled**
+  /// Checks if location services are enabled
   Future<bool> isLocationServiceEnabled() async {
     return await Permission.location.serviceStatus.isEnabled;
   }
 
-  /// Detect the currently connected network (Wi-Fi only)
+  /// Gets the currently connected Wi-Fi network
   Future<String?> getCurrentWifi() async {
-    // Check if location services are enabled
     if (!await isLocationServiceEnabled()) {
       debugPrint("Location services are disabled.");
       return "Location Disabled";
     }
-
-    // Request location permission
     if (await Permission.location.request().isGranted) {
       try {
         String? wifiName = await WiFiForIoTPlugin.getSSID();
         if (wifiName != null && wifiName.isNotEmpty) {
-          addToAllNetworks(wifiName); // Ensure the network is stored
+          addToAllNetworks(wifiName);
         }
         return wifiName ?? "Unknown Network";
       } catch (e) {
@@ -85,18 +76,18 @@ class SecureNetworkProvider extends ChangeNotifier {
     }
   }
 
-  /// Check if the current network is trusted
+  /// Checks if the current network is trusted
   Future<bool> isCurrentNetworkTrusted() async {
     String? currentWifi = await getCurrentWifi();
     return currentWifi != null && _trustedNetworks.contains(currentWifi);
   }
 
-  /// ✅ **Fix: Add this method to check if a specific network is trusted**
+  /// Checks if a specific network is trusted
   bool isNetworkTrusted(String networkName) {
     return _trustedNetworks.contains(networkName);
   }
 
-  /// Add a Wi-Fi network to trusted list
+  /// Adds a Wi-Fi network to the trusted list
   Future<void> addTrustedNetwork(String networkName) async {
     if (!_trustedNetworks.contains(networkName)) {
       _trustedNetworks.add(networkName);
@@ -106,7 +97,7 @@ class SecureNetworkProvider extends ChangeNotifier {
     }
   }
 
-  /// Remove a Wi-Fi network from trusted list
+  /// Removes a Wi-Fi network from the trusted list
   Future<void> removeTrustedNetwork(String networkName) async {
     _trustedNetworks.remove(networkName);
     final prefs = await SharedPreferences.getInstance();
@@ -114,7 +105,7 @@ class SecureNetworkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add to all networks list (stores any network the app connects to)
+  /// Adds a network to the all-networks list
   Future<void> addToAllNetworks(String networkName) async {
     if (!_allNetworks.contains(networkName)) {
       _allNetworks.add(networkName);
@@ -124,33 +115,30 @@ class SecureNetworkProvider extends ChangeNotifier {
     }
   }
 
-  /// Remove a Wi-Fi network from **all** networks list
+  /// Removes a network from both all-networks and trusted lists
   Future<void> removeFromAllNetworks(String networkName) async {
     _allNetworks.remove(networkName);
-    _trustedNetworks
-        .remove(networkName); // Ensure it's also removed from trusted list
+    _trustedNetworks.remove(networkName);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('all_networks', _allNetworks);
     await prefs.setStringList('trusted_networks', _trustedNetworks);
     notifyListeners();
   }
 
-  /// Check network security and show a warning if needed
+  /// Checks the network security and shows a warning if needed
   Future<void> checkNetworkSecurity(BuildContext context) async {
     if (!_isSecureInternetEnabled) return;
-
     String? currentWifi = await getCurrentWifi();
     bool isTrusted = await isCurrentNetworkTrusted();
-
     if (currentWifi != null) {
-      addToAllNetworks(currentWifi); // Ensure current network is stored
+      addToAllNetworks(currentWifi);
       if (!isTrusted) {
         _showUntrustedNetworkAlert(context, currentWifi);
       }
     }
   }
 
-  /// Show warning for untrusted network
+  /// Shows an alert for untrusted networks
   void _showUntrustedNetworkAlert(BuildContext context, String networkName) {
     showDialog(
       context: context,

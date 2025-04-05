@@ -4,7 +4,7 @@ import 'providers/chat_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/secure_auth_provider.dart';
 import 'providers/secure_network_provider.dart';
-import 'screens/auth_screen.dart'; // ✅ Import the new AuthScreen
+import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() {
@@ -38,7 +38,7 @@ class MyApp extends StatelessWidget {
       home: Builder(
         builder: (context) {
           secureNetworkProvider.checkNetworkSecurity(context);
-          return const AuthScreen(); // ✅ Start with AuthScreen instead of HomeScreen
+          return const AuthScreen();
         },
       ),
     );

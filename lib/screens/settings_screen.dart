@@ -15,13 +15,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  /// Store decrypted passwords keyed by chatId
   Map<String, String?> savedPasswords = {};
-
-  /// Track whether the password is visible (true/false) per chatId
   Map<String, bool> isPasswordVisible = {};
-
-  /// Store each chat’s display name keyed by chatId
   Map<String, String> chatNames = {};
 
   @override
@@ -37,7 +32,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final secureAuthProvider = Provider.of<SecureAuthProvider>(context);
     final secureNetworkProvider = Provider.of<SecureNetworkProvider>(context);
 
-    // ✅ Theme-based colors
     final isDarkMode = themeProvider.currentTheme == "dark";
     final backgroundColor = isDarkMode ? const Color(0xFF0D0D0D) : Colors.white;
     final textColor = isDarkMode ? Colors.white : Colors.black;
@@ -59,7 +53,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /// **Appearance Settings**
             const SizedBox(height: 10),
             Text("Appearance",
                 style: _sectionHeaderStyle.copyWith(color: subTextColor)),
@@ -83,13 +76,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               }).toList(),
             ),
-
-            /// **Security Settings**
             const SizedBox(height: 20),
             Text("Security",
                 style: _sectionHeaderStyle.copyWith(color: subTextColor)),
             Padding(
-              padding: const EdgeInsets.only(left: 10), // Ensures alignment
+              padding: const EdgeInsets.only(left: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -102,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   Transform.scale(
-                    scale: 0.75, // Smaller toggle
+                    scale: 0.75,
                     child: Switch(
                       value: secureAuthProvider.isBiometricEnabled,
                       onChanged: (value) async {
@@ -115,8 +106,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-
-            /// **Saved Passwords Section**
             const SizedBox(height: 20),
             Text("Saved Passwords",
                 style: _sectionHeaderStyle.copyWith(color: subTextColor)),
@@ -131,14 +120,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       final chatId = entry.key;
                       final password = entry.value ?? "No password";
                       final isVisible = isPasswordVisible[chatId] ?? false;
-
-                      // If there's no stored chatName, fall back to the chat ID
                       final displayName = chatNames[chatId]?.isNotEmpty == true
                           ? chatNames[chatId]!
                           : chatId;
-
                       return ListTile(
-                        // Show the chat name here instead of chat ID
                         title: Text(displayName,
                             style: TextStyle(color: textColor)),
                         subtitle: Text(
@@ -156,7 +141,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 color: textColor,
                               ),
                               onPressed: () async {
-                                // Require biometric authentication before showing
                                 bool authenticated = await _authenticate();
                                 if (authenticated) {
                                   setState(() {
@@ -174,13 +158,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     }).toList(),
                   ),
-
-            /// **Secure Internet Settings**
             const SizedBox(height: 20),
             Text("Secure Internet",
                 style: _sectionHeaderStyle.copyWith(color: subTextColor)),
             Padding(
-              padding: const EdgeInsets.only(left: 10), // Align properly
+              padding: const EdgeInsets.only(left: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -192,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   Transform.scale(
-                    scale: 0.75, // Smaller toggle
+                    scale: 0.75,
                     child: Switch(
                       value: secureNetworkProvider.isSecureInternetEnabled,
                       onChanged: (value) {
@@ -205,8 +187,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-
-            /// **Show Trusted Networks List (Only if Secure Internet is Enabled)**
             if (secureNetworkProvider.isSecureInternetEnabled &&
                 secureNetworkProvider.allNetworks.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -231,8 +211,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ],
-
-            /// **Clear All Chats Button**
             const SizedBox(height: 40),
             Center(
               child: ElevatedButton(
@@ -261,34 +239,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Fetch saved passwords from storage, plus each chat's name
+  /// Loads saved passwords and chat names
   Future<void> _loadSavedPasswords() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-
-    // For each chat ID known to ChatProvider...
     for (var chatId in chatProvider.getChatIds()) {
-      // Retrieve the entire chat map
       final chatObject = chatProvider.getChatById(chatId);
-
-      // Extract 'name' from the map (fall back to empty string)
       final name = chatObject?['name'] ?? '';
-
-      // Get the stored/decrypted password
       final password = await SecureStorage.getPassword(chatId);
-
-      // If a password is present, store it + store chat name
       if (password != null) {
         savedPasswords[chatId] = password;
-        chatNames[chatId] =
-            name.isNotEmpty ? name : chatId; // fallback if empty
+        chatNames[chatId] = name.isNotEmpty ? name : chatId;
       }
     }
-
     if (!mounted) return;
-    setState(() {}); // Refresh UI after loading
+    setState(() {});
   }
 
-  /// Biometric authentication to view password text
+  /// Authenticates with biometrics to show a password
   Future<bool> _authenticate() async {
     final LocalAuthentication auth = LocalAuthentication();
     return await auth.authenticate(
@@ -297,7 +264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Deletes stored password from SecureStorage and removes it from memory
+  /// Deletes a saved password and clears it from memory
   Future<void> _deleteSavedPassword(String chatId) async {
     await SecureStorage.deletePassword(chatId);
     setState(() {
@@ -305,15 +272,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       isPasswordVisible.remove(chatId);
       chatNames.remove(chatId);
     });
-
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final chatData = chatProvider.getChatById(chatId);
     if (chatData != null) {
-      // Remove the password fields in memory
       chatData['password'] = "";
       chatData['passwordSaved'] = false;
-
-      // Optional: Force chat as disconnected, so it won’t auto-reconnect
       chatData['connected'] = false;
       chatProvider.notifyListeners();
       await chatProvider.saveChatHistory();
@@ -321,7 +284,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// Reusable Styles
 const TextStyle _sectionHeaderStyle = TextStyle(
   fontSize: 16,
   fontWeight: FontWeight.bold,
