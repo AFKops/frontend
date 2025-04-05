@@ -42,7 +42,7 @@ class SSHService {
       "username": username,
       "password": password,
     };
-    print("📤 Sending CONNECT: $connectMsg");
+    print("📤 Sending CONNECT action");
     _channel?.sink.add(jsonEncode(connectMsg));
 
     _startHeartbeat();
