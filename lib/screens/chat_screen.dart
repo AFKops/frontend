@@ -28,20 +28,21 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAtBottom = true;
   bool _userHasScrolledUp = false;
 
-  // Called after init; sets listeners.
   @override
   void initState() {
     super.initState();
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     chatProvider.addListener(_handleProviderUpdates);
     _scrollController.addListener(_onScroll);
+
+    // Scroll to bottom on first build:
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom(force: true);
     });
+
     _messageController.addListener(_handleTextChanges);
   }
 
-  // Disposes controllers.
   @override
   void dispose() {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -51,7 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  // Updates UI when provider changes.
+  // Called whenever the ChatProvider changes:
   void _handleProviderUpdates() {
     if (!mounted) return;
     if (_userHasScrolledUp) return;
@@ -61,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {});
   }
 
-  // Monitors scroll position.
+  // Monitor scroll position to see if user scrolled up away from bottom
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final offset = _scrollController.offset;
@@ -73,7 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // Scrolls to bottom.
+  // Scroll to bottom helper
   void _scrollToBottom({bool immediate = false, bool force = false}) {
     if (!_scrollController.hasClients) return;
     if (!force && _userHasScrolledUp) return;
@@ -81,11 +82,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final duration = immediate
         ? const Duration(milliseconds: 100)
         : const Duration(milliseconds: 300);
-    _scrollController.animateTo(position,
-        duration: duration, curve: Curves.easeOut);
+    _scrollController.animateTo(
+      position,
+      duration: duration,
+      curve: Curves.easeOut,
+    );
   }
 
-  // Handles directory suggestion logic.
+  // Handle "cd " directory suggestions
   void _handleTextChanges() async {
     final input = _messageController.text.trim();
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -96,11 +100,13 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       return;
     }
+
     final rawQuery = input.length > 2 ? input.substring(3).trim() : "";
     final isRequestingSubdir = rawQuery.endsWith("/");
     if (isRequestingSubdir || rawQuery.isEmpty) {
       await chatProvider.updateFileSuggestions(widget.chatId, query: rawQuery);
     }
+
     setState(() {
       _fileSuggestions =
           chatProvider.chats[widget.chatId]?['fileSuggestions'] ?? [];
@@ -116,18 +122,20 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // Sends a message or command.
+  // Send a message or command
   Future<void> _sendMessage() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final text = _messageController.text.trim();
     _messageController.clear();
     if (text.isEmpty) return;
+
     if (chatProvider.isStreaming(widget.chatId)) {
       chatProvider.stopStreaming(widget.chatId);
     }
     chatProvider.addMessage(widget.chatId, text, isUser: true);
     _startTypingIndicator();
     _scrollToBottom(immediate: true, force: true);
+
     try {
       if (chatProvider.isStreamingCommand(text)) {
         chatProvider.startStreaming(widget.chatId, text);
@@ -156,25 +164,24 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // Starts typing indicator.
+  // Show user is typing
   void _startTypingIndicator() {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final lastMsg = chatProvider.getMessages(widget.chatId).lastOrNull;
     if (lastMsg != null && chatProvider.isStreamingCommand(lastMsg['text'])) {
-      return;
+      return; // Already streaming
     }
     setState(() => _isTyping = true);
     _scrollToBottom(immediate: true, force: true);
   }
 
-  // Stops typing indicator.
+  // Stop typing indicator
   void _stopTypingIndicator() {
     if (!mounted) return;
     setState(() => _isTyping = false);
   }
 
-  // Prompts user for password.
-  // Prompts user for password, tries reconnect inline, shows error if wrong.
+  // Prompt for password if needed
   Future<String?> _askForPassword(BuildContext context) async {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
@@ -209,14 +216,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (errorMessage.isNotEmpty)
-                      Text(errorMessage,
-                          style: const TextStyle(color: Colors.red)),
+                      Text(
+                        errorMessage,
+                        style: const TextStyle(color: Colors.red),
+                      ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: pwdCtrl,
                       obscureText: true,
                       style: TextStyle(
-                          color: isDarkMode ? Colors.white : Colors.black),
+                        color: isDarkMode ? Colors.white : Colors.black,
+                      ),
                       decoration: InputDecoration(
                         hintText: "Password",
                         hintStyle: TextStyle(
@@ -322,7 +332,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // Attempts to reconnect if disconnected.
+  // Attempt reconnect if disconnected
   Future<void> _handleReconnect() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final chatData = chatProvider.getChatById(widget.chatId);
@@ -338,12 +348,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (typedPwd == null) {
         return; // user canceled or never succeeded
       }
-      // If you want ephemeral usage only, do nothing else
-      // Or if you want to do something with typedPwd, do it here
+      // If ephemeral usage only, do nothing more here
     }
   }
 
-  // Builds UI.
   @override
   Widget build(BuildContext context) {
     final isDarkMode =
@@ -354,6 +362,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final isConnected = chatProvider.isChatActive(widget.chatId);
 
     return Scaffold(
+      // Important so the screen moves up when keyboard appears:
       resizeToAvoidBottomInset: true,
       backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
       appBar: AppBar(
@@ -369,19 +378,9 @@ class _ChatScreenState extends State<ChatScreen> {
               color: isConnected ? Colors.green : Colors.red,
             ),
             onPressed: () async {
-              // Debug log
-              print(
-                  "[DEBUG] Tapped the connection icon. isConnected = $isConnected");
-              // Show ChatProvider’s actual 'connected' status from the data model
-              final actualConnState =
-                  chatProvider.chats[widget.chatId]?['connected'];
-              print("[DEBUG] chatData['connected']: $actualConnState");
-
               if (!isConnected) {
-                print("[DEBUG] Attempting to reconnect...");
                 await _handleReconnect();
               } else {
-                print("[DEBUG] Already connected: no action taken.");
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("Already connected")),
                 );
@@ -399,128 +398,171 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
-                  itemCount: messages.length + (_isTyping ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (_isTyping && index == messages.length) {
-                      return const _TypingIndicator();
-                    }
-                    final message = messages[index];
-                    final isUserMessage = message['isUser'] ?? false;
-                    final isStreaming =
-                        chatProvider.isStreaming(widget.chatId) &&
-                            index == messages.length - 1;
-                    return Align(
-                      alignment: isUserMessage
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
-                      child: _buildMessageBubble(
-                        message['text'],
-                        isUserMessage,
-                        isStreaming: isStreaming,
-                        chatId: widget.chatId,
-                        index: index,
-                      ),
-                    );
-                  },
+
+      // <--- Wrap everything in a SafeArea so that system insets are applied
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // Column holds the message list + chat input
+            Column(
+              children: [
+                // Expand the list so it can grow/shrink with the keyboard
+                Expanded(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 15, vertical: 10),
+                    itemCount: messages.length + (_isTyping ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      // If user is typing, add the typing indicator
+                      if (_isTyping && index == messages.length) {
+                        return const _TypingIndicator();
+                      }
+                      final message = messages[index];
+                      final isUserMessage = message['isUser'] ?? false;
+                      final isStreaming =
+                          chatProvider.isStreaming(widget.chatId) &&
+                              index == messages.length - 1;
+                      return Align(
+                        alignment: isUserMessage
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: _buildMessageBubble(
+                          message['text'],
+                          isUserMessage,
+                          isStreaming: isStreaming,
+                          chatId: widget.chatId,
+                          index: index,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                // The user’s chat input box at the bottom:
+                _chatInputBox(),
+              ],
+            ),
+
+            // The directory suggestions popup, layered over the list:
+            if (_showTagPopup && _filteredSuggestions.isNotEmpty) _tagPopup(),
+
+            // If user is scrolled up, show the “jump to bottom” button
+            if (!_isAtBottom)
+              Positioned(
+                right: 10,
+                bottom: 75,
+                child: FloatingActionButton.small(
+                  backgroundColor: Colors.black.withOpacity(0.7),
+                  onPressed: () => _scrollToBottom(force: true),
+                  child: const Icon(Icons.keyboard_arrow_down,
+                      color: Colors.white),
                 ),
               ),
-              _chatInputBox(),
-            ],
-          ),
-          if (_showTagPopup && _filteredSuggestions.isNotEmpty) _tagPopup(),
-          if (!_isAtBottom)
-            Positioned(
-              right: 10,
-              bottom: 75,
-              child: FloatingActionButton.small(
-                backgroundColor: Colors.black.withOpacity(0.7),
-                onPressed: () => _scrollToBottom(force: true),
-                child:
-                    const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // Builds the input row at the bottom.
+  // The bottom textfield row
   Widget _chatInputBox() {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
     final chatProvider = Provider.of<ChatProvider>(context);
+    final chatData = chatProvider.chats[widget.chatId];
+
     return Padding(
       padding: const EdgeInsets.all(10.0),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              autocorrect: false,
-              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
-              decoration: InputDecoration(
-                hintText: "Type a command...",
-                hintStyle: TextStyle(
-                  color: isDarkMode ? Colors.white54 : Colors.black54,
-                ),
-                prefixIcon: IconButton(
-                  icon: Icon(
-                    Icons.arrow_back,
-                    color: isDarkMode ? Colors.white : Colors.black,
-                  ),
-                  onPressed: () {
-                    chatProvider.sendCommand(widget.chatId, "cd ..",
-                        silent: true);
-                  },
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25.0),
-                  borderSide: BorderSide(
-                    color: isDarkMode ? Colors.white38 : Colors.black26,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25.0),
-                  borderSide: BorderSide(
-                    color: isDarkMode ? Colors.white24 : Colors.black12,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25.0),
-                  borderSide: BorderSide(
-                    color: isDarkMode ? Colors.white : Colors.black,
-                  ),
-                ),
-                filled: true,
-                fillColor: Colors.transparent,
+          // Top: TextField
+          TextField(
+            controller: _messageController,
+            autocorrect: false,
+            style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+            decoration: InputDecoration(
+              hintText: "Type a command...",
+              hintStyle: TextStyle(
+                color: isDarkMode ? Colors.white54 : Colors.black54,
               ),
-              onTap: () {
-                _scrollToBottom(force: true);
-              },
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(25.0),
+                borderSide: BorderSide(
+                  color: isDarkMode ? Colors.white38 : Colors.black26,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(25.0),
+                borderSide: BorderSide(
+                  color: isDarkMode ? Colors.white24 : Colors.black12,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(25.0),
+                borderSide: BorderSide(
+                  color: isDarkMode ? Colors.white : Colors.black,
+                ),
+              ),
+              filled: true,
+              fillColor: Colors.transparent,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 14,
+                horizontal: 20,
+              ),
             ),
+            onTap: () {
+              _scrollToBottom(force: true);
+            },
           ),
-          IconButton(
-            icon: Icon(
-              Icons.send,
-              color: isDarkMode ? Colors.white : Colors.black,
-            ),
-            onPressed: _sendMessage,
+
+          const SizedBox(height: 8),
+
+          // Bottom: Button Row
+          Row(
+            children: [
+              // Back (cd ..)
+              IconButton(
+                icon: Icon(Icons.arrow_back,
+                    color: isDarkMode ? Colors.white : Colors.black),
+                onPressed: () {
+                  chatProvider.sendCommand(widget.chatId, "cd ..",
+                      silent: true);
+                },
+              ),
+
+              // Ctrl+C
+              IconButton(
+                icon: Icon(Icons.stop_circle_outlined,
+                    color: isDarkMode ? Colors.red[300] : Colors.red),
+                onPressed: () {
+                  final ssh = chatData?['service'] as SSHService?;
+                  ssh?.sendCtrlC();
+                  chatProvider.addMessage(
+                    widget.chatId,
+                    "🚫 Force Ctrl+C sent.",
+                    isUser: false,
+                  );
+                },
+              ),
+
+              const Spacer(),
+
+              // Send
+              IconButton(
+                icon: Icon(Icons.send,
+                    color: isDarkMode ? Colors.white : Colors.black),
+                onPressed: _sendMessage,
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // Builds the tag popup for cd suggestions.
+  // The horizontal suggestion “chips” for directories
   Widget _tagPopup() {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
@@ -586,9 +628,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // Builds a single message bubble.
-  Widget _buildMessageBubble(String text, bool isUserMessage,
-      {bool isStreaming = false, required String chatId, required int index}) {
+  // A single bubble in the chat
+  Widget _buildMessageBubble(
+    String text,
+    bool isUserMessage, {
+    bool isStreaming = false,
+    required String chatId,
+    required int index,
+  }) {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
     final chatProvider = Provider.of<ChatProvider>(context);
@@ -596,6 +643,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final chatData = chatProvider.chats[chatId];
     final inProgress = (chatData?['inProgress'] == true);
     final isLastMessage = (index == messages.length - 1);
+
+    // Handle <small> tags
     String smallCommand = "";
     String mainText = text;
     final smallMatch = RegExp(r"<small>(.*?)<\/small>").firstMatch(text);
@@ -603,13 +652,15 @@ class _ChatScreenState extends State<ChatScreen> {
       smallCommand = smallMatch.group(1) ?? "";
       mainText = text.replaceAll(smallMatch.group(0)!, "").trim();
     }
+
     return GestureDetector(
       onLongPress: () {
         Clipboard.setData(ClipboardData(text: text));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Copied to clipboard'),
-              duration: Duration(seconds: 1)),
+            content: Text('Copied to clipboard'),
+            duration: Duration(seconds: 1),
+          ),
         );
       },
       child: Container(
@@ -671,8 +722,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           ssh?.stopCurrentProcess();
                           chatData?['inProgress'] = false;
                           chatProvider.addMessage(
-                              chatId, "❌ Command cancelled.",
-                              isUser: false);
+                            chatId,
+                            "❌ Command cancelled.",
+                            isUser: false,
+                          );
                           chatProvider.notifyListeners();
                         }
                         Future.delayed(const Duration(milliseconds: 200), () {
@@ -682,15 +735,19 @@ class _ChatScreenState extends State<ChatScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       child: Text(
                         "🛑 Stop ${isStreaming ? "Streaming" : "Command"}",
-                        style:
-                            const TextStyle(fontSize: 12, color: Colors.white),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],
@@ -703,6 +760,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
+// The little “...” typing dots shown while user is typing
 class _TypingIndicator extends StatefulWidget {
   const _TypingIndicator();
 
@@ -715,7 +773,6 @@ class _TypingIndicatorState extends State<_TypingIndicator>
   late AnimationController _controller;
   late Animation<double> _animation;
 
-  // Initializes animations.
   @override
   void initState() {
     super.initState();
@@ -728,7 +785,6 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     );
   }
 
-  // Builds typing indicator.
   @override
   Widget build(BuildContext context) {
     final isDarkMode =
@@ -761,7 +817,6 @@ class _TypingIndicatorState extends State<_TypingIndicator>
     );
   }
 
-  // Cleans up controller.
   @override
   void dispose() {
     _controller.dispose();

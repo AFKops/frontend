@@ -106,4 +106,16 @@ class SSHService {
       _isConnected = false;
     }
   }
+
+  /// Sends Ctrl+C (SIGINT) to the remote process
+  void sendCtrlC() {
+    if (_channel == null || !_isConnected) {
+      print("❌ Not connected. Please connect first.");
+      return;
+    }
+
+    final msg = {"action": "CTRL_C"};
+    print("📤 Sending CTRL_C");
+    _channel?.sink.add(jsonEncode(msg));
+  }
 }

@@ -513,26 +513,57 @@ class ChatProvider extends ChangeNotifier {
   void _handleServerOutput(String chatId, String rawOutput) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
+
     try {
       final parsed = jsonDecode(rawOutput);
-      if (parsed is Map && parsed.containsKey("directories")) {
-        chatData['fileSuggestions'] = List<String>.from(parsed["directories"]);
-        notifyListeners();
-        return;
+
+      // If the server sent something like {"directories": [...]}:
+      if (parsed is Map<String, dynamic> && parsed.containsKey("directories")) {
+        final dirs = parsed["directories"];
+        if (dirs is List) {
+          // Convert each item to a string
+          chatData['fileSuggestions'] = dirs.map((item) {
+            // 1) If it's already a string, just use it
+            if (item is String) {
+              return item;
+
+              // 2) If it's a map with 'name', use that
+            } else if (item is Map<String, dynamic> &&
+                item.containsKey('name')) {
+              return item['name'].toString();
+
+              // 3) Otherwise, fallback
+            } else {
+              return item.toString();
+            }
+          }).toList();
+
+          notifyListeners();
+        }
+        return; // Don’t fall through to the plain-text logic if we found directories
       }
-    } catch (_) {}
+    } catch (_) {
+      // If it’s not valid JSON or parsing fails, handle as plain text below.
+    }
+
+    // -------------------------------------------------------
+    // Continue handling normal (non-JSON) server output...
+    // -------------------------------------------------------
     final lines = rawOutput.split('\n');
     for (final line in lines) {
+      // If a line looks like an absolute path with no spaces, assume it's the new directory:
       if (line.startsWith('/') && !line.contains(' ')) {
         updateCurrentPath(chatId, line.trim());
         updateFileSuggestions(chatId);
       }
     }
+
     if (chatData.containsKey('lastCommandOutput')) {
       chatData['lastCommandOutput'] += "\n$rawOutput";
     } else {
       chatData['lastCommandOutput'] = rawOutput;
     }
+
     Future.delayed(const Duration(milliseconds: 100), () {
       if (chatData.containsKey('lastCommandOutput')) {
         addMessage(chatId, chatData['lastCommandOutput'], isUser: false);
