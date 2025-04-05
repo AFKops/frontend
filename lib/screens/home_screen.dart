@@ -156,7 +156,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     setState(() => _isConnecting = true); // ✅ Show loading indicator
-
     // ✅ Attempt SSH connection & validate authentication
     String chatId = await chatProvider.startNewChat(
       chatName: chatName,

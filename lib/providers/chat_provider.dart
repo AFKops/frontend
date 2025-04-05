@@ -138,13 +138,12 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
-      String encodedPassword = encodePassword(password);
       Completer<String> authCompleter = Completer<String>();
 
       ssh.connectToWebSocket(
         host: host,
         username: username,
-        password: encodedPassword,
+        password: password, // ✅ Pass raw password, not base64
         onMessageReceived: (output) {
           if (output.contains("❌ Authentication failed")) {
             authCompleter.complete("FAIL");
@@ -174,6 +173,7 @@ class ChatProvider extends ChangeNotifier {
       Future.delayed(const Duration(milliseconds: 300), () {
         ssh.sendWebSocketCommand("uptime");
       });
+
       chatData['connected'] = true;
       _isConnected = true;
       addMessage(newChatId, "✅ Connected to $host", isUser: false);

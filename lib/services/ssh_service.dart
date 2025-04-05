@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
+import '../utils/encryption_service.dart';
 
 /// Manages a single persistent WebSocket connection to the Python /ssh-stream
 class SSHService {
@@ -21,8 +22,8 @@ class SSHService {
     required String password,
     required Function(String) onMessageReceived,
     required Function(String) onError,
-    Function()? onDisconnected, // NEW
-  }) {
+    Function()? onDisconnected,
+  }) async {
     if (_channel != null && _isConnected) {
       print("🔄 WebSocket is already connected. Reusing connection...");
       return;
@@ -36,13 +37,29 @@ class SSHService {
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     _isConnected = true;
 
+    // 🔐 Fetch the AES key from the server
+    final encryptionKey = await EncryptionService.getEncryptionKey();
+    if (encryptionKey == null) {
+      onError("❌ Failed to fetch encryption key");
+      return;
+    }
+
+    // 👇 Store original for logging ONLY
+    final originalPassword = password;
+
+    // 🔐 Encrypt using originalPassword
+    final encryptedHost = encryptFernet(host, encryptionKey);
+    final encryptedUsername = encryptFernet(username, encryptionKey);
+    final encryptedPassword = encryptFernet(originalPassword, encryptionKey);
+
     final connectMsg = {
       "action": "CONNECT",
-      "host": host,
-      "username": username,
-      "password": password,
+      "host": encryptedHost,
+      "username": encryptedUsername,
+      "password": encryptedPassword,
     };
-    print("📤 Sending CONNECT action");
+
+    print("📤 Sending encrypted CONNECT action");
     _channel?.sink.add(jsonEncode(connectMsg));
 
     _startHeartbeat();

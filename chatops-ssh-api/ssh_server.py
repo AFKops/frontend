@@ -4,18 +4,35 @@ import asyncio
 import json
 import uuid
 import re
-import base64  # ✅ For decoding password
+import base64
 from quart import Quart, websocket
 from dotenv import load_dotenv
 import os
-from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 # Load .env file
 load_dotenv("/var/www/chatops/.env")
 
 # Get encryption key from environment
-FERNET_KEY = os.getenv("ENCRYPTION_KEY")
-fernet = Fernet(FERNET_KEY)
+AES_KEY_B64 = os.getenv("ENCRYPTION_KEY")
+
+# -----------------------------------------------------------------------------
+# AES-CBC Decryption Function
+# -----------------------------------------------------------------------------
+def decrypt_aes_cbc(encrypted_b64: str, key_b64: str) -> str:
+    encrypted_data = base64.b64decode(encrypted_b64)
+    key = base64.b64decode(key_b64)
+
+    iv = encrypted_data[:16]
+    ciphertext = encrypted_data[16:]
+
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_padded = decryptor.update(ciphertext) + decryptor.finalize()
+
+    pad_len = decrypted_padded[-1]
+    return decrypted_padded[:-pad_len].decode('utf-8')
 
 # -----------------------------------------------------------------------------
 # Configure logging
@@ -32,24 +49,9 @@ logging.basicConfig(
 app = Quart(__name__)
 active_sessions = {}  # session_id -> {"conn", "proc", "read_task"}
 
-# -----------------------------------------------------------------------------
-# ANSI / Shell prompt cleaning
-# -----------------------------------------------------------------------------
 ANSI_ESCAPE = re.compile(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])|(?:\x9B[0-?]*[ -/]*[@-~])")
 PROMPT_REGEX = re.compile(r"^[\w@.-]+[:~\s]+\$ ")
 
-# -----------------------------------------------------------------------------
-# Decode password (base64)
-# -----------------------------------------------------------------------------
-def decode_password(encoded_password):
-    try:
-        return base64.b64decode(encoded_password).decode("utf-8")
-    except Exception:
-        return encoded_password
-
-# -----------------------------------------------------------------------------
-# WebSocket endpoint /ssh-stream
-# -----------------------------------------------------------------------------
 @app.websocket('/ssh-stream')
 async def ssh_stream():
     logger = logging.getLogger('websocket')
@@ -61,9 +63,6 @@ async def ssh_stream():
         await websocket.accept()
         logger.info(f"[{session_id}] WebSocket connected.")
 
-        # ---------------------------------------------------------------------
-        # Continuously read from the interactive shell (bash -i)
-        # ---------------------------------------------------------------------
         async def read_bash(proc):
             try:
                 output_buffer = []
@@ -99,15 +98,22 @@ async def ssh_stream():
                 continue
 
             if action == "CONNECT":
-                host = data.get("host")
-                username = data.get("username")
-                password = data.get("password")
+                encrypted_host = data.get("host")
+                encrypted_username = data.get("username")
+                encrypted_password = data.get("password")
 
-                if not all([host, username, password]):
-                    await websocket.send_json({"error": "Missing host/username/password"})
+                if not all([encrypted_host, encrypted_username, encrypted_password]):
+                    await websocket.send_json({"error": "Missing encrypted credentials"})
                     continue
 
-                decoded_password = decode_password(password)
+                try:
+                    host = decrypt_aes_cbc(encrypted_host, AES_KEY_B64)
+                    username = decrypt_aes_cbc(encrypted_username, AES_KEY_B64)
+                    password = decrypt_aes_cbc(encrypted_password, AES_KEY_B64)
+                except Exception as e:
+                    logger.exception(f"[{session_id}] AES decryption failed")
+                    await websocket.send_json({"error": f"❌ Failed to decrypt credentials: {str(e)}"})
+                    continue
 
                 if session["conn"] is not None:
                     await websocket.send_json({"info": "Already connected, reusing session"})
@@ -118,7 +124,7 @@ async def ssh_stream():
                     conn = await asyncssh.connect(
                         host=host,
                         username=username,
-                        password=decoded_password,
+                        password=password,
                         known_hosts=None
                     )
                     session["conn"] = conn
@@ -201,11 +207,6 @@ async def ssh_stream():
                 logger.warning(f"[{session_id}] Unknown action: {action}")
                 await websocket.send_json({"error": f"Unknown action: {action}"})
 
-    except asyncio.IncompleteReadError:
-        logger.warning(f"[{session_id}] IncompleteReadError.")
-    except asyncssh.Error as e:
-        logger.error(f"[{session_id}] SSH Error: {str(e)}")
-        await websocket.send_json({"error": f"❌ SSH Error: {str(e)}"})
     except Exception as e:
         logger.exception(f"[{session_id}] Unexpected error in websocket handler:")
         await websocket.send_json({"error": f"Server Error: {str(e)}"})
@@ -253,11 +254,11 @@ if __name__ == "__main__":
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     logger = logging.getLogger("main")
-    logger.info("🚀 Starting server on 0.0.0.0:5000")
+    logger.info("\U0001F680 Starting server on 0.0.0.0:5000")
 
     try:
         asyncio.run(serve(app, config))
     except KeyboardInterrupt:
-        logger.info("🔻 Server shutdown requested")
+        logger.info("\U0001F53B Server shutdown requested")
     except Exception as e:
         logger.critical(f"🔥 Server crashed: {str(e)}")
