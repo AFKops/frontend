@@ -6,7 +6,7 @@ import '../utils/encryption_service.dart';
 
 /// Manages a single persistent WebSocket connection to the Python /ssh-stream
 class SSHService {
-  final String wsUrl = "ws://137.184.69.130:5000/ssh-stream";
+  final String wsUrl = "ws://afkops.com/ssh-stream";
   WebSocketChannel? _channel;
   bool _isConnected = false;
   Function(String)? onMessageReceived;
