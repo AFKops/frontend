@@ -11,15 +11,10 @@ import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-# Load .env file
 load_dotenv("/var/www/chatops/.env")
-
-# Get encryption key from environment
 AES_KEY_B64 = os.getenv("ENCRYPTION_KEY")
 
-# -----------------------------------------------------------------------------
-# AES-CBC Decryption Function
-# -----------------------------------------------------------------------------
+# Decrypt AES-CBC data
 def decrypt_aes_cbc(encrypted_b64: str, key_b64: str) -> str:
     encrypted_data = base64.b64decode(encrypted_b64)
     key = base64.b64decode(key_b64)
@@ -34,24 +29,19 @@ def decrypt_aes_cbc(encrypted_b64: str, key_b64: str) -> str:
     pad_len = decrypted_padded[-1]
     return decrypted_padded[:-pad_len].decode('utf-8')
 
-# -----------------------------------------------------------------------------
-# Configure logging
-# -----------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
 
-# -----------------------------------------------------------------------------
-# Create Quart app and store active sessions
-# -----------------------------------------------------------------------------
 app = Quart(__name__)
-active_sessions = {}  # session_id -> {"conn", "proc", "read_task"}
+active_sessions = {}
 
 ANSI_ESCAPE = re.compile(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])|(?:\x9B[0-?]*[ -/]*[@-~])")
 PROMPT_REGEX = re.compile(r"^[\w@.-]+[:~\s]+\$ ")
 
+# WebSocket handler for SSH streaming
 @app.websocket('/ssh-stream')
 async def ssh_stream():
     logger = logging.getLogger('websocket')
@@ -110,9 +100,14 @@ async def ssh_stream():
                     host = decrypt_aes_cbc(encrypted_host, AES_KEY_B64)
                     username = decrypt_aes_cbc(encrypted_username, AES_KEY_B64)
                     password = decrypt_aes_cbc(encrypted_password, AES_KEY_B64)
+
+                    logger.debug(f"[{session_id}] Decrypted credentials:")
+                    logger.debug(f"[{session_id}]    Host: {host}")
+                    logger.debug(f"[{session_id}]    Username: {username}")
+                    logger.debug(f"[{session_id}]    Password: {password}")
                 except Exception as e:
                     logger.exception(f"[{session_id}] AES decryption failed")
-                    await websocket.send_json({"error": f"❌ Failed to decrypt credentials: {str(e)}"})
+                    await websocket.send_json({"error": f"Failed to decrypt credentials: {str(e)}"})
                     continue
 
                 if session["conn"] is not None:
@@ -143,12 +138,12 @@ async def ssh_stream():
                     await websocket.send_json({"info": "Interactive Bash session started."})
                     logger.info(f"[{session_id}] Connected + interactive Bash ready with PTY.")
 
-                except asyncssh.AuthenticationError:
+                except asyncssh.PermissionDenied:
                     logger.error(f"[{session_id}] Authentication failed.")
-                    await websocket.send_json({"error": "❌ Authentication failed: Incorrect username or password."})
+                    await websocket.send_json({"error": "Authentication failed: Incorrect username or password."})
                 except asyncssh.Error as e:
                     logger.error(f"[{session_id}] SSH Error: {str(e)}")
-                    await websocket.send_json({"error": f"❌ SSH Error: {str(e)}"})
+                    await websocket.send_json({"error": f"SSH Error: {str(e)}"})
 
             elif action == "RUN_COMMAND":
                 if session["conn"] is None or session["proc"] is None:
@@ -240,9 +235,11 @@ async def ssh_stream():
 
         logger.info(f"[{session_id}] WebSocket disconnected.")
 
-# -----------------------------------------------------------------------------
-# Run server with Hypercorn
-# -----------------------------------------------------------------------------
+# Return encryption key
+@app.route('/get-key')
+async def get_key():
+    return {"key": AES_KEY_B64}
+
 if __name__ == "__main__":
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
@@ -254,11 +251,11 @@ if __name__ == "__main__":
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     logger = logging.getLogger("main")
-    logger.info("\U0001F680 Starting server on 0.0.0.0:5000")
+    logger.info("Starting server on 0.0.0.0:5000")
 
     try:
         asyncio.run(serve(app, config))
     except KeyboardInterrupt:
-        logger.info("\U0001F53B Server shutdown requested")
+        logger.info("Server shutdown requested")
     except Exception as e:
-        logger.critical(f"🔥 Server crashed: {str(e)}")
+        logger.critical(f"Server crashed: {str(e)}")
