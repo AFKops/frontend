@@ -94,7 +94,7 @@ flutter run
 
 ## Future Work
 
-In upcoming releases, the app will integrate an AI command assistant. Users will be able to type natural-language instructions like:
+In upcoming releases, I will try to integrate an AI command assistant. Users will be able to type natural-language instructions like:
 
 ```
 give me the logs
