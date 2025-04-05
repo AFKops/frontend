@@ -213,7 +213,7 @@ class ChatProvider extends ChangeNotifier {
   void disconnectChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       _chats[chatId]?['connected'] = false;
-      _isConnected = false;
+      _isConnected = _chats.values.any((chat) => chat['connected'] == true);
       notifyListeners();
     }
   }
@@ -226,11 +226,9 @@ class ChatProvider extends ChangeNotifier {
     if (chatData['service'] == null) {
       chatData['service'] = SSHService();
     }
+
     final ssh = chatData['service'] as SSHService?;
-    if (ssh == null) {
-      addMessage(chatId, "❌ No SSHService found for reconnect", isUser: false);
-      return;
-    }
+    if (ssh == null) return;
 
     try {
       Completer<String> authCompleter = Completer<String>();
@@ -249,9 +247,12 @@ class ChatProvider extends ChangeNotifier {
         },
         onError: (err) {
           authCompleter.complete("FAIL");
+          disconnectChat(chatId);
           addMessage(chatId, "❌ $err", isUser: false);
-          _isConnected = false;
-          notifyListeners();
+        },
+        onDisconnected: () {
+          disconnectChat(chatId);
+          addMessage(chatId, "🔌 Disconnected from server", isUser: false);
         },
       );
 
@@ -264,15 +265,14 @@ class ChatProvider extends ChangeNotifier {
         addMessage(chatId, "✅ Reconnected to ${chatData['host']}",
             isUser: false);
       } else {
-        chatData['connected'] = false;
+        disconnectChat(chatId);
         addMessage(chatId, "❌ Authentication failed", isUser: false);
-        _isConnected = false;
-        notifyListeners();
       }
+
+      notifyListeners();
     } catch (e) {
-      _isConnected = false;
-      chatData['connected'] = false;
-      addMessage(chatId, "❌ Failed to reconnect: $e", isUser: false);
+      disconnectChat(chatId);
+      addMessage(chatId, "❌ Reconnect error: $e", isUser: false);
     }
   }
 

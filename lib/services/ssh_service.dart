@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
@@ -9,6 +10,9 @@ class SSHService {
   bool _isConnected = false;
   Function(String)? onMessageReceived;
   Function(String)? onError;
+  Function()? onDisconnected; // NEW
+
+  Timer? _heartbeatTimer;
 
   /// Connects to the WebSocket with action=CONNECT
   void connectToWebSocket({
@@ -17,14 +21,18 @@ class SSHService {
     required String password,
     required Function(String) onMessageReceived,
     required Function(String) onError,
+    Function()? onDisconnected, // NEW
   }) {
     if (_channel != null && _isConnected) {
       print("🔄 WebSocket is already connected. Reusing connection...");
       return;
     }
+
     print("🌐 Connecting to WebSocket: $wsUrl");
     this.onMessageReceived = onMessageReceived;
     this.onError = onError;
+    this.onDisconnected = onDisconnected;
+
     _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     _isConnected = true;
 
@@ -36,6 +44,8 @@ class SSHService {
     };
     print("📤 Sending CONNECT: $connectMsg");
     _channel?.sink.add(jsonEncode(connectMsg));
+
+    _startHeartbeat();
 
     _channel?.stream.listen(
       (rawMessage) {
@@ -53,18 +63,41 @@ class SSHService {
       },
       onError: (error) {
         print("⚠️ WebSocket Error: $error");
-        _isConnected = false;
+        _handleDisconnect();
         onError('WebSocket error: $error');
       },
       onDone: () {
         print("🔻 WebSocket connection closed.");
-        _isConnected = false;
+        _handleDisconnect();
         onError('WebSocket connection closed');
       },
     );
   }
 
-  /// Sends a normal RUN_COMMAND
+  void _handleDisconnect() {
+    _isConnected = false;
+    _channel = null;
+    _stopHeartbeat();
+
+    if (onDisconnected != null) {
+      onDisconnected!(); // This will notify the ChatProvider
+    }
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_isConnected) {
+        _channel?.sink.add(jsonEncode({"action": "PING"}));
+      }
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
   void sendWebSocketCommand(String command) {
     if (_channel == null || !_isConnected) {
       print("❌ Not connected. Please connect first.");
@@ -75,7 +108,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Requests a directory listing via LIST_FILES
   void listFiles(String directory) {
     if (_channel == null || !_isConnected) {
       print("❌ Not connected. Please connect first.");
@@ -86,7 +118,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Stops any currently running process without closing the SSH session
   void stopCurrentProcess() {
     if (_channel == null || !_isConnected) {
       print("❌ Not connected. Please connect first.");
@@ -97,17 +128,16 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Closes the SSH WebSocket entirely
   void closeWebSocket() {
     if (_channel != null) {
       _channel?.sink.close(status.goingAway);
       print("🔻 WebSocket Closed.");
       _channel = null;
       _isConnected = false;
+      _stopHeartbeat();
     }
   }
 
-  /// Sends Ctrl+C (SIGINT) to the remote process
   void sendCtrlC() {
     if (_channel == null || !_isConnected) {
       print("❌ Not connected. Please connect first.");
