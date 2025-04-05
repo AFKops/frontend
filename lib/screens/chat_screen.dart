@@ -16,10 +16,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  // Directory suggestions
   List<String> _filteredSuggestions = [];
-  bool _showTagPopup = false;
   List<String> _fileSuggestions = [];
+  bool _showTagPopup = false;
 
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -35,7 +34,7 @@ class _ChatScreenState extends State<ChatScreen> {
     chatProvider.addListener(_handleProviderUpdates);
     _scrollController.addListener(_onScroll);
 
-    // Scroll to bottom on first build:
+    // Scroll to bottom on first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom(force: true);
     });
@@ -62,7 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {});
   }
 
-  // Monitor scroll position to see if user scrolled up away from bottom
+  // Monitor scroll to see if user scrolled up away from bottom
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final offset = _scrollController.offset;
@@ -93,6 +92,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleTextChanges() async {
     final input = _messageController.text.trim();
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
     if (!input.toLowerCase().startsWith("cd")) {
       setState(() {
         _filteredSuggestions.clear();
@@ -362,8 +362,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final isConnected = chatProvider.isChatActive(widget.chatId);
 
     return Scaffold(
-      // Important so the screen moves up when keyboard appears:
-      resizeToAvoidBottomInset: true,
+      // Let us handle insets with MediaQuery + SafeArea
+      resizeToAvoidBottomInset: false,
       backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
       appBar: AppBar(
         title: Text(chatName, style: const TextStyle(fontSize: 18)),
@@ -398,74 +398,144 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-
-      // <--- Wrap everything in a SafeArea so that system insets are applied
       body: SafeArea(
-        child: Stack(
-          children: [
-            // Column holds the message list + chat input
-            Column(
-              children: [
-                // Expand the list so it can grow/shrink with the keyboard
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 15, vertical: 10),
-                    itemCount: messages.length + (_isTyping ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      // If user is typing, add the typing indicator
-                      if (_isTyping && index == messages.length) {
-                        return const _TypingIndicator();
-                      }
-                      final message = messages[index];
-                      final isUserMessage = message['isUser'] ?? false;
-                      final isStreaming =
-                          chatProvider.isStreaming(widget.chatId) &&
-                              index == messages.length - 1;
-                      return Align(
-                        alignment: isUserMessage
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: _buildMessageBubble(
-                          message['text'],
-                          isUserMessage,
-                          isStreaming: isStreaming,
-                          chatId: widget.chatId,
-                          index: index,
+        // This padding ensures everything moves up with the keyboard
+        child: Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Column(
+            children: [
+              // The main messages area
+              Expanded(
+                child: Stack(
+                  children: [
+                    ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 10),
+                      itemCount: messages.length + (_isTyping ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        // If user is typing, add the typing indicator
+                        if (_isTyping && index == messages.length) {
+                          return const _TypingIndicator();
+                        }
+                        final message = messages[index];
+                        final isUserMessage = message['isUser'] ?? false;
+                        final isStreaming = chatProvider.isStreaming(
+                              widget.chatId,
+                            ) &&
+                            index == messages.length - 1;
+                        return Align(
+                          alignment: isUserMessage
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: _buildMessageBubble(
+                            message['text'],
+                            isUserMessage,
+                            isStreaming: isStreaming,
+                            chatId: widget.chatId,
+                            index: index,
+                          ),
+                        );
+                      },
+                    ),
+
+                    // If user is scrolled up, show a "jump to bottom" button
+                    if (!_isAtBottom)
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            right: 10,
+                            bottom: 10,
+                          ),
+                          child: FloatingActionButton.small(
+                            backgroundColor: Colors.black.withOpacity(0.7),
+                            onPressed: () => _scrollToBottom(force: true),
+                            child: const Icon(Icons.keyboard_arrow_down,
+                                color: Colors.white),
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-
-                // The user’s chat input box at the bottom:
-                _chatInputBox(),
-              ],
-            ),
-
-            // The directory suggestions popup, layered over the list:
-            if (_showTagPopup && _filteredSuggestions.isNotEmpty) _tagPopup(),
-
-            // If user is scrolled up, show the “jump to bottom” button
-            if (!_isAtBottom)
-              Positioned(
-                right: 10,
-                bottom: 75,
-                child: FloatingActionButton.small(
-                  backgroundColor: Colors.black.withOpacity(0.7),
-                  onPressed: () => _scrollToBottom(force: true),
-                  child: const Icon(Icons.keyboard_arrow_down,
-                      color: Colors.white),
+                      ),
+                  ],
                 ),
               ),
-          ],
+
+              // Suggestions row (only visible if we have suggestions)
+              if (_showTagPopup && _filteredSuggestions.isNotEmpty)
+                _buildSuggestionRow(),
+
+              // The user’s chat input
+              _chatInputBox(),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // The bottom textfield row
+  // Directory suggestion row, shown above the input bar
+  // Directory suggestion row, shown above the input bar
+  Widget _buildSuggestionRow() {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
+
+    return Container(
+      padding: const EdgeInsets.only(left: 10, right: 10, top: 4, bottom: 2),
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start, // <-- left align
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: _filteredSuggestions.map((dir) {
+            return Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4), // reduced height
+              decoration: BoxDecoration(
+                color: isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: GestureDetector(
+                onTap: () {
+                  final currentText = _messageController.text.trim();
+                  if (currentText.startsWith("cd ")) {
+                    final parts = currentText.split(" ");
+                    if (parts.length > 1) {
+                      final pathParts = parts[1].split("/");
+                      pathParts.removeLast();
+                      pathParts.add(dir);
+                      _messageController.text = "cd " + pathParts.join("/");
+                    } else {
+                      _messageController.text = "cd $dir";
+                    }
+                  } else {
+                    _messageController.text = "cd $dir";
+                  }
+                  setState(() {
+                    _filteredSuggestions.clear();
+                    _showTagPopup = false;
+                  });
+                },
+                child: Text(
+                  dir,
+                  style: TextStyle(
+                    fontSize: 11, // smaller text
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w400,
+                    color: isDarkMode ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // The bottom textfield + control row
   Widget _chatInputBox() {
     final isDarkMode =
         Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
@@ -477,7 +547,7 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Top: TextField
+          // Command input
           TextField(
             controller: _messageController,
             autocorrect: false,
@@ -507,10 +577,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               filled: true,
               fillColor: Colors.transparent,
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 14,
-                horizontal: 20,
-              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
             ),
             onTap: () {
               _scrollToBottom(force: true);
@@ -519,7 +587,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
           const SizedBox(height: 8),
 
-          // Bottom: Button Row
+          // Row of buttons: Back (cd..), Ctrl+C, Send
           Row(
             children: [
               // Back (cd ..)
@@ -562,73 +630,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // The horizontal suggestion “chips” for directories
-  Widget _tagPopup() {
-    final isDarkMode =
-        Provider.of<ThemeProvider>(context, listen: true).isDarkMode;
-    return Positioned(
-      left: 15,
-      bottom: 75,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: MediaQuery.of(context).size.width - 30,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: _filteredSuggestions.map((dir) {
-                return GestureDetector(
-                  onTap: () {
-                    final currentText = _messageController.text.trim();
-                    if (currentText.startsWith("cd ")) {
-                      final parts = currentText.split(" ");
-                      if (parts.length > 1) {
-                        final pathParts = parts[1].split("/");
-                        pathParts.removeLast();
-                        pathParts.add(dir);
-                        _messageController.text = "cd " + pathParts.join("/");
-                      } else {
-                        _messageController.text = "cd $dir";
-                      }
-                    } else {
-                      _messageController.text = "cd $dir";
-                    }
-                    setState(() {
-                      _filteredSuggestions.clear();
-                      _showTagPopup = false;
-                    });
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: isDarkMode
-                          ? const Color(0xFF2A2A2A)
-                          : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      dir,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w300,
-                        color: isDarkMode ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // A single bubble in the chat
+  // One bubble in the chat
   Widget _buildMessageBubble(
     String text,
     bool isUserMessage, {
@@ -760,7 +762,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// The little “...” typing dots shown while user is typing
+// The “...” typing dots shown while user is typing
 class _TypingIndicator extends StatefulWidget {
   const _TypingIndicator();
 
