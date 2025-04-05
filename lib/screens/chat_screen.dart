@@ -5,6 +5,7 @@ import '../providers/chat_provider.dart';
 import 'home_screen.dart';
 import '../providers/theme_provider.dart';
 import '../services/ssh_service.dart';
+import '../widgets/notepad.dart';
 import '../utils/secure_storage.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -587,7 +588,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
           const SizedBox(height: 8),
 
-          // Row of buttons: Back (cd..), Ctrl+C, Send
+          // Row of buttons: Back (cd..), Ctrl+C, Notepad, Send
           Row(
             children: [
               // Back (cd ..)
@@ -611,6 +612,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     widget.chatId,
                     "🚫 Force Ctrl+C sent.",
                     isUser: false,
+                  );
+                },
+              ),
+
+              // 📝 Notepad button for full editor
+              IconButton(
+                icon: Icon(Icons.edit_note,
+                    color: isDarkMode ? Colors.white70 : Colors.black87),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullNotepadScreen(chatId: widget.chatId),
+                    ),
                   );
                 },
               ),

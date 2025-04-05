@@ -117,6 +117,7 @@ class ChatProvider extends ChangeNotifier {
       'service': isGeneralChat ? null : SSHService(),
       'inProgress': false,
       'fileSuggestions': <String>[],
+      'customCommands': <String>[],
     };
 
     setCurrentChat(newChatId);
@@ -490,6 +491,10 @@ class ChatProvider extends ChangeNotifier {
     await prefs.setString('chat_history', jsonEncode(temp));
   }
 
+  List<String> getSavedCommands(String chatId) {
+    return List<String>.from(_chats[chatId]?['customCommands'] ?? []);
+  }
+
   // Loads chat history
   Future<void> loadChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
@@ -499,9 +504,20 @@ class ChatProvider extends ChangeNotifier {
       decoded.forEach((key, val) {
         final map = Map<String, dynamic>.from(val);
 
-        // Keep host, username, password, etc. but always mark the chat as disconnected.
+        // Always reset connection state on app start
         map['connected'] = false;
-        map['service'] = null; // ensure no stale service object
+        map['service'] = null;
+
+        // Ensure customCommands is present as a List<String>
+        if (map.containsKey('customCommands')) {
+          map['customCommands'] =
+              List<String>.from(map['customCommands'] ?? []);
+        } else {
+          map['customCommands'] = <String>[];
+        }
+
+        // ✅ Ensure notepadText field exists
+        map['notepadText'] = map['notepadText'] ?? "";
 
         _chats[key] = map;
       });
@@ -571,5 +587,32 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  void addSavedCommand(String chatId, String cmd) {
+    if (!_chats.containsKey(chatId)) return;
+    final list = List<String>.from(_chats[chatId]?['customCommands'] ?? []);
+    if (!list.contains(cmd)) {
+      list.add(cmd);
+      _chats[chatId]!['customCommands'] = list;
+      notifyListeners();
+      saveChatHistory();
+    }
+  }
+
+  void removeSavedCommand(String chatId, String cmd) {
+    if (!_chats.containsKey(chatId)) return;
+    final list = List<String>.from(_chats[chatId]?['customCommands'] ?? []);
+    list.remove(cmd);
+    _chats[chatId]!['customCommands'] = list;
+    notifyListeners();
+    saveChatHistory();
+  }
+
+  void updateNotepadText(String chatId, String text) {
+    if (!_chats.containsKey(chatId)) return;
+    _chats[chatId]!['notepadText'] = text;
+    saveChatHistory();
+    notifyListeners();
   }
 }
