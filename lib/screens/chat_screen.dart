@@ -189,15 +189,16 @@ class _ChatScreenState extends State<ChatScreen> {
         Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
+    bool showPassword = false; // ← move this up here
+    bool isLoading = false;
+    String errorMessage = "";
+    bool savePassword = false;
+    final pwdCtrl = TextEditingController();
+
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        bool isLoading = false;
-        String errorMessage = "";
-        bool savePassword = false;
-        final pwdCtrl = TextEditingController();
-
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
@@ -225,7 +226,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: pwdCtrl,
-                      obscureText: true,
+                      obscureText: !showPassword,
                       style: TextStyle(
                         color: isDarkMode ? Colors.white : Colors.black,
                       ),
@@ -242,6 +243,17 @@ class _ChatScreenState extends State<ChatScreen> {
                           borderSide: BorderSide(
                             color: isDarkMode ? Colors.white38 : Colors.black26,
                           ),
+                        ),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            showPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: isDarkMode ? Colors.white54 : Colors.black54,
+                          ),
+                          onPressed: () {
+                            setState(() => showPassword = !showPassword);
+                          },
                         ),
                       ),
                     ),
@@ -292,7 +304,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             });
                             return;
                           }
-                          // Attempt reconnect
                           final success = await chatProvider.reconnectAndCheck(
                             widget.chatId,
                             typed,
@@ -307,11 +318,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                 chatData['password'] = typed;
                                 chatData['passwordSaved'] = true;
                                 chatProvider.notifyListeners();
-
-                                // Also store in SecureStorage so it appears in Settings
                                 await SecureStorage.savePassword(
                                   widget.chatId,
-                                  typed, // actual password
+                                  typed,
                                   chatData['name'] ?? "",
                                   chatData['host'] ?? "",
                                   chatData['username'] ?? "",

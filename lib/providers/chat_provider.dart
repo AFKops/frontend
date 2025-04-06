@@ -228,11 +228,14 @@ class ChatProvider extends ChangeNotifier {
   String getCurrentChatId() => _currentChatId;
 
   void disconnectChat(String chatId) {
-    if (_chats.containsKey(chatId)) {
-      _chats[chatId]?['connected'] = false;
-      _isConnected = _chats.values.any((chat) => chat['connected'] == true);
-      notifyListeners();
+    final chat = chats[chatId];
+    if (chat != null && chat['service'] is SSHService) {
+      final ssh = chat['service'] as SSHService;
+      ssh.closeWebSocket(); // Properly close WS connection
+      chat['service'] = null;
+      chat['connected'] = false;
     }
+    notifyListeners();
   }
 
   /// Reconnect with given password or key, depending on mode stored in chat data
