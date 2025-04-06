@@ -6,12 +6,14 @@ import 'package:web_socket_channel/status.dart' as status;
 import '../utils/encryption_service.dart';
 
 class SSHService {
-  final String wsUrl = "ws://afkops.com/ssh-stream";
+  final String wsUrl;
   WebSocketChannel? _channel;
   bool _isConnected = false;
   Function(String)? onMessageReceived;
   Function(String)? onError;
   Function()? onDisconnected;
+
+  SSHService({required this.wsUrl});
 
   Timer? _heartbeatTimer;
 

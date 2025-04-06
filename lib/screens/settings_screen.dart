@@ -5,6 +5,7 @@ import '../providers/theme_provider.dart';
 import '../providers/secure_auth_provider.dart';
 import '../utils/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,10 +20,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, String> chatNames = {};
   bool hasAuthenticated = false;
 
+  // For WebSocket URL input
+  TextEditingController _wsUrlController = TextEditingController();
+  String _savedWsUrl = "ws://afkops.com/ssh-stream"; // Default WebSocket URL
+  bool _isEditing = false; // Keep track of whether the field is editable
+
   @override
   void initState() {
     super.initState();
     _loadSavedPasswords();
+    _loadWebSocketUrl(); // Load saved WebSocket URL
   }
 
   @override
@@ -164,7 +171,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     }).toList(),
                   ),
+            const SizedBox(height: 20),
+
+            // WebSocket URL section
+            Text("WebSocket URL",
+                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
+            Padding(
+              padding: const EdgeInsets.only(left: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment
+                    .spaceBetween, // Align the content with space between
+                children: [
+                  Expanded(
+                    child: Text(
+                      _savedWsUrl, // Display the current WebSocket URL
+                      style: TextStyle(color: textColor),
+                      overflow:
+                          TextOverflow.ellipsis, // Ensure it doesn't overflow
+                    ),
+                  ),
+                  // Pencil Icon (Edit)
+                  IconButton(
+                    icon: Icon(
+                      Icons.edit,
+                      color: textColor,
+                    ),
+                    onPressed:
+                        _showWebSocketPopup, // Open the popup to edit URL
+                  ),
+                  // Reload Icon (Reset to default)
+                  IconButton(
+                    icon: Icon(
+                      Icons.refresh,
+                      color: textColor,
+                    ),
+                    onPressed: _resetWebSocketUrl, // Reset to default URL
+                  ),
+                ],
+              ),
+            ),
+
             const SizedBox(height: 40),
+
             Center(
               child: ElevatedButton(
                 onPressed: () {
@@ -208,6 +256,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
+  /// Loads the saved WebSocket URL from SharedPreferences
+  Future<void> _loadWebSocketUrl() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedUrl = prefs.getString("wsUrl");
+    if (savedUrl != null) {
+      setState(() {
+        _savedWsUrl = savedUrl;
+        _wsUrlController.text = savedUrl;
+      });
+    }
+  }
+
+  /// Saves the WebSocket URL to SharedPreferences
+  void _saveWebSocketUrl() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String newWsUrl = _wsUrlController.text.trim();
+
+    if (newWsUrl != _savedWsUrl) {
+      // Save the new URL
+      await prefs.setString("wsUrl", newWsUrl);
+
+      // Update state
+      setState(() {
+        _savedWsUrl = newWsUrl;
+      });
+
+      // Disconnect all active chats
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      for (var chatId in chatProvider.getChatIds()) {
+        chatProvider.disconnectChat(chatId); // Gracefully closes WebSocket
+      }
+
+      // Optionally show a toast/snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("WebSocket updated. All chats disconnected.")),
+      );
+    }
+
+    Navigator.of(context).pop(); // Close popup
+  }
+
   /// Authenticates with biometrics to show a password
   Future<bool> _authenticate() async {
     final LocalAuthentication auth = LocalAuthentication();
@@ -234,6 +324,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
       chatProvider.notifyListeners();
       await chatProvider.saveChatHistory();
     }
+  }
+
+  // Show the WebSocket edit popup
+  void _showWebSocketPopup() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDarkMode ? Colors.white : Colors.black;
+    final subTextColor = isDarkMode ? Colors.grey[400] : Colors.grey[800];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: isDarkMode ? const Color(0xFF1C1C1E) : Colors.white,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _wsUrlController,
+                style: TextStyle(color: textColor), // Input text color
+                decoration: InputDecoration(
+                  labelText: "WebSocket URL",
+                  labelStyle: TextStyle(color: subTextColor),
+                  hintText: "Enter your WebSocket URL",
+                  hintStyle: TextStyle(color: subTextColor),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                "This is a sensitive link responsible for connecting to your remote server. Make sure this matches your backend exactly. Changing the link will disconnect all remote connections.",
+                style: TextStyle(fontSize: 14, color: subTextColor),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                "Examples:\n"
+                "- ws://123.456.789.0:8000/ssh-stream\n"
+                "- wss://yourdomain.com/ssh-stream",
+                style: TextStyle(fontSize: 13, color: subTextColor),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Cancel
+              },
+              child: const Text("Cancel", style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(
+              onPressed: _saveWebSocketUrl, // Save
+              child: Text("Save", style: TextStyle(color: Colors.blue[300])),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Reset the WebSocket URL to default
+  void _resetWebSocketUrl() async {
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    setState(() {
+      _wsUrlController.text = "ws://afkops.com/ssh-stream"; // Reset to default
+      _savedWsUrl = _wsUrlController.text;
+    });
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString("wsUrl", _savedWsUrl);
+
+    // Disconnect all chats
+    for (var chatId in chatProvider.getChatIds()) {
+      chatProvider.disconnectChat(chatId);
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text("Reset to default. All chats disconnected.")),
+    );
   }
 }
 

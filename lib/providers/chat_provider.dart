@@ -11,6 +11,13 @@ class ChatProvider extends ChangeNotifier {
   String _currentChatId = "";
   bool _isConnected = false;
 
+// Fetch the WebSocket URL from SharedPreferences or a global provider
+  Future<String> _getWebSocketUrl() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString("wsUrl") ??
+        "ws://afkops.com/ssh-stream"; // Default URL if none is saved
+  }
+
   Map<String, dynamic>? getChatById(String chatId) {
     return _chats[chatId];
   }
@@ -94,6 +101,12 @@ class ChatProvider extends ChangeNotifier {
     String newChatId = isGeneralChat ? "general_${uuid.v4()}" : uuid.v4();
     String timestamp = DateTime.now().toIso8601String();
 
+    // Initialize the service (SSHService) with the WebSocket URL fetched dynamically
+    String wsUrl = await _getWebSocketUrl(); // Fetch the WebSocket URL
+    SSHService? service = isGeneralChat
+        ? null
+        : SSHService(wsUrl: wsUrl); // Create SSHService with wsUrl
+
     _chats[newChatId] = {
       'name': chatName,
       'messages': <Map<String, dynamic>>[],
@@ -105,11 +118,11 @@ class ChatProvider extends ChangeNotifier {
       'passwordSaved': isPwSaved,
       'currentDirectory': isGeneralChat ? "" : "/root",
       'connected': isGeneralChat,
-      'service': isGeneralChat ? null : SSHService(),
+      'service': service, // Set the service here
       'inProgress': false,
       'fileSuggestions': <String>[],
       'customCommands': <String>[],
-      'mode': mode, // NEW: store the auth mode in the chat data
+      'mode': mode, // Store the auth mode in the chat data
     };
 
     setCurrentChat(newChatId);
@@ -244,7 +257,9 @@ class ChatProvider extends ChangeNotifier {
     if (chatData == null) return;
 
     if (chatData['service'] == null) {
-      chatData['service'] = SSHService();
+      // Get the WebSocket URL
+      String wsUrl = await _getWebSocketUrl();
+      chatData['service'] = SSHService(wsUrl: wsUrl);
     }
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
@@ -331,7 +346,9 @@ class ChatProvider extends ChangeNotifier {
     if (chatData == null) return false;
 
     if (chatData['service'] == null) {
-      chatData['service'] = SSHService();
+      // Get the WebSocket URL
+      String wsUrl = await _getWebSocketUrl();
+      chatData['service'] = SSHService(wsUrl: wsUrl);
     }
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return false;

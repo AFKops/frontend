@@ -31,25 +31,7 @@ cd frontend
 flutter pub get
 ```
 
-### 3. Update WebSocket URL
-
-> By default, the app connects to the backend server hosted at:
->
-> `ws://afkops.com/ssh-stream`
->
-> If you're self-hosting the backend, change this line in `lib/services/ssh_service.dart`:
-
-```dart
-final String wsUrl = "ws://your_server_ip:5000/ssh-stream";
-```
-
-If you're using WSS (SSL), make sure you update this to:
-
-```dart
-final String wsUrl = "wss://yourdomain.com/ssh-stream";
-```
-
-### 4. Build & Run the App
+### 3. Build & Run the App
 
 ```bash
 flutter run
@@ -60,6 +42,32 @@ flutter run
 > ```bash
 > flutter build apk --release
 > ```
+
+### 4. Update WebSocket URL
+
+> By default, the app connects to the backend server hosted at:
+>
+> `ws://afkops.com/ssh-stream`
+>
+> If you're self-hosting the backend or using a different domain or port, you can update the WebSocket URL directly from the Settings screen in the app:
+    1. Go to Settings from the main menu.
+    2. Scroll to the WebSocket URL section.
+    3.Tap the ✏️ edit icon next to the current URL.
+    4. Enter your custom WebSocket URL`(e.g., ws://your_server_ip:5000/ssh-stream or wss://yourdomain.com/ssh-stream).
+
+Tap Save.
+
+> Changing the WebSocket URL will immediately disconnect all active SSH sessions, and future sessions will use the updated URL.
+
+> ✅ Example URLs:
+
+```bash
+`ws://192.168.1.10:5000/ssh-stream`
+```
+
+```bash
+`wss://yourdomain.com/ssh-stream`
+```
 
 ---
 

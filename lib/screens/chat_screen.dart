@@ -21,6 +21,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<String> _filteredSuggestions = [];
   List<String> _fileSuggestions = [];
   bool _showTagPopup = false;
+  bool _isConnecting = false;
 
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -588,18 +589,29 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            icon: Icon(
-              isConnected ? Icons.check_circle : Icons.refresh,
-              color: isConnected ? Colors.green : Colors.red,
-            ),
+            icon: _isConnecting
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.red,
+                    ),
+                  )
+                : Icon(
+                    isConnected ? Icons.check_circle : Icons.refresh,
+                    color: isConnected ? Colors.green : Colors.red,
+                  ),
             onPressed: () async {
               if (isConnected) {
-                chatProvider.disconnectChat(widget.chatId); // no await
+                chatProvider.disconnectChat(widget.chatId);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("🔌 Disconnected from server")),
                 );
               } else {
+                setState(() => _isConnecting = true);
                 await _handleReconnect();
+                if (mounted) setState(() => _isConnecting = false);
               }
             },
           ),
