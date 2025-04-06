@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/secure_auth_provider.dart';
-import '../providers/secure_network_provider.dart';
 import '../utils/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
@@ -18,6 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, String?> savedPasswords = {};
   Map<String, bool> isPasswordVisible = {};
   Map<String, String> chatNames = {};
+  bool hasAuthenticated = false;
 
   @override
   void initState() {
@@ -30,7 +30,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final chatProvider = Provider.of<ChatProvider>(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
     final secureAuthProvider = Provider.of<SecureAuthProvider>(context);
-    final secureNetworkProvider = Provider.of<SecureNetworkProvider>(context);
 
     final isDarkMode = themeProvider.currentTheme == "dark";
     final backgroundColor = isDarkMode ? const Color(0xFF0D0D0D) : Colors.white;
@@ -107,12 +106,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text("Saved Passwords",
+            Text("Passwords & Keys",
                 style: _sectionHeaderStyle.copyWith(color: subTextColor)),
             savedPasswords.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.only(left: 10),
-                    child: Text("No saved passwords",
+                    child: Text("No saved passwords & keys",
                         style: TextStyle(color: subTextColor)),
                   )
                 : Column(
@@ -141,8 +140,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 color: textColor,
                               ),
                               onPressed: () async {
-                                bool authenticated = await _authenticate();
-                                if (authenticated) {
+                                if (!hasAuthenticated) {
+                                  bool authenticated = await _authenticate();
+                                  if (authenticated) {
+                                    setState(() {
+                                      isPasswordVisible[chatId] = !isVisible;
+                                      hasAuthenticated = true;
+                                    });
+                                  }
+                                } else {
                                   setState(() {
                                     isPasswordVisible[chatId] = !isVisible;
                                   });
@@ -158,59 +164,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     }).toList(),
                   ),
-            const SizedBox(height: 20),
-            Text("Secure Internet",
-                style: _sectionHeaderStyle.copyWith(color: subTextColor)),
-            Padding(
-              padding: const EdgeInsets.only(left: 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: ListTile(
-                      leading: Icon(Icons.security, color: textColor, size: 20),
-                      title: Text("Enable Secure Internet",
-                          style: TextStyle(color: textColor)),
-                    ),
-                  ),
-                  Transform.scale(
-                    scale: 0.75,
-                    child: Switch(
-                      value: secureNetworkProvider.isSecureInternetEnabled,
-                      onChanged: (value) {
-                        secureNetworkProvider.toggleSecureInternet(context);
-                      },
-                      activeColor: toggleColor,
-                      inactiveTrackColor: toggleInactiveColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (secureNetworkProvider.isSecureInternetEnabled &&
-                secureNetworkProvider.allNetworks.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text("Trusted Networks",
-                  style: TextStyle(color: subTextColor, fontSize: 14)),
-              const SizedBox(height: 10),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: secureNetworkProvider.allNetworks.length,
-                itemBuilder: (context, index) {
-                  final network = secureNetworkProvider.allNetworks[index];
-                  return ListTile(
-                    title: Text(network, style: TextStyle(color: textColor)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () {
-                        secureNetworkProvider.removeTrustedNetwork(network);
-                      },
-                    ),
-                  );
-                },
-              ),
-            ],
             const SizedBox(height: 40),
             Center(
               child: ElevatedButton(
