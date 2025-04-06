@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import '../utils/encryption_service.dart';
 
-/// Manages a single persistent WebSocket connection to the Python /ssh-stream
 class SSHService {
   final String wsUrl = "ws://afkops.com/ssh-stream";
   WebSocketChannel? _channel;
@@ -15,11 +15,12 @@ class SSHService {
 
   Timer? _heartbeatTimer;
 
-  /// Connects to the WebSocket with action=CONNECT
-  void connectToWebSocket({
+  Future<void> connectToWebSocket({
     required String host,
     required String username,
-    required String password,
+    String password = "",
+    String privateKey = "",
+    String mode = "PASSWORD", // PASSWORD, KEY, ADVANCED
     required Function(String) onMessageReceived,
     required Function(String) onError,
     Function()? onDisconnected,
@@ -43,60 +44,130 @@ class SSHService {
       return;
     }
 
-    final encryptedHost = encryptFernet(host, encryptionKey);
-    final encryptedUsername = encryptFernet(username, encryptionKey);
-    final encryptedPassword = encryptFernet(password, encryptionKey);
+    String finalHost = host;
+    String finalUsername = username;
+    String finalPrivateKey = privateKey;
+
+    // ADVANCED mode auto-parsing
+    if (mode == "ADVANCED") {
+      try {
+        final parts = host.split(RegExp(r'\s+'));
+        if (parts.length < 4) {
+          onError("Invalid SSH command format. Use: ssh -i key.pem user@host");
+          return;
+        }
+
+        final keyPath = parts[2];
+        final userAtHost = parts[3];
+
+        finalUsername = userAtHost.split('@')[0];
+        finalHost = userAtHost.split('@')[1];
+        finalPrivateKey = keyPath;
+
+        print("🔍 ADVANCED parsed host: $finalHost");
+        print("🔍 ADVANCED parsed username: $finalUsername");
+        print("🔍 ADVANCED parsed key path: $finalPrivateKey");
+      } catch (e) {
+        onError("Failed to parse SSH command: $e");
+        return;
+      }
+    }
+
+    final encryptedHost =
+        await EncryptionService.encryptAESCBC(finalHost, encryptionKey);
+    final encryptedUser =
+        await EncryptionService.encryptAESCBC(finalUsername, encryptionKey);
+
+    String? encryptedPassword;
+    String? encryptedKey;
+
+    if (mode == "PASSWORD") {
+      encryptedPassword =
+          await EncryptionService.encryptAESCBC(password, encryptionKey);
+    } else if (mode == "KEY" || mode == "ADVANCED") {
+      try {
+        String pemContent;
+
+        if (finalPrivateKey.contains("PRIVATE KEY")) {
+          // This is likely a pasted PEM string
+          pemContent = finalPrivateKey;
+          print("📋 Detected pasted PEM key");
+        } else {
+          // This is a path to a key file
+          pemContent = await File(finalPrivateKey).readAsString();
+          print("📁 Loaded PEM key from file path: $finalPrivateKey");
+        }
+
+        final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
+        encryptedKey = await EncryptionService.encryptAESCBC(
+            privateKeyBase64, encryptionKey);
+        print("🧪 Encrypted PEM key (base64+AES-CBC):\n$encryptedKey");
+      } catch (e) {
+        onError("Failed to handle private key: $e");
+        return;
+      }
+    }
 
     final connectMsg = {
       "action": "CONNECT",
+      "mode": mode == "ADVANCED" ? "KEY" : mode, // treat ADVANCED as KEY
       "host": encryptedHost,
-      "username": encryptedUsername,
-      "password": encryptedPassword,
+      "username": encryptedUser,
     };
 
-    print("Sending encrypted CONNECT action");
+    if (mode == "PASSWORD") {
+      connectMsg["password"] = encryptedPassword!;
+    } else {
+      connectMsg["key"] = encryptedKey!;
+    }
+
+    print("Sending CONNECT action (mode=$mode)");
     _channel?.sink.add(jsonEncode(connectMsg));
 
     _startHeartbeat();
 
     _channel?.stream.listen(
       (rawMessage) {
-        final data = jsonDecode(rawMessage);
-        if (data['output'] != null) {
-          onMessageReceived(data['output'].toString());
-        } else if (data['error'] != null) {
-          onError(data['error'].toString());
-        } else if (data['info'] != null) {
-          onMessageReceived(data['info'].toString());
-        } else if (data['directories'] != null) {
-          final dirs = data['directories'] as List;
-          onMessageReceived(jsonEncode({"directories": dirs}));
+        try {
+          final data = jsonDecode(rawMessage);
+          if (data['output'] != null) {
+            onMessageReceived?.call(data['output'].toString());
+          } else if (data['error'] != null) {
+            onError?.call(data['error'].toString());
+          } else if (data['info'] != null) {
+            onMessageReceived?.call(data['info'].toString());
+          } else if (data['directories'] != null) {
+            final dirs = data['directories'] as List;
+            onMessageReceived?.call(jsonEncode({"directories": dirs}));
+          }
+        } catch (e) {
+          print("Error parsing WebSocket message: $e");
         }
       },
       onError: (error) {
         print("WebSocket Error: $error");
         _handleDisconnect();
-        onError('WebSocket error: $error');
+        try {
+          onError?.call('WebSocket error: $error');
+        } catch (_) {}
       },
       onDone: () {
         print("WebSocket connection closed.");
         _handleDisconnect();
-        onError('WebSocket connection closed');
+        try {
+          onError?.call('WebSocket connection closed');
+        } catch (_) {}
       },
     );
   }
 
-  /// Handles a WebSocket disconnection
   void _handleDisconnect() {
     _isConnected = false;
     _channel = null;
     _stopHeartbeat();
-    if (onDisconnected != null) {
-      onDisconnected!();
-    }
+    onDisconnected?.call();
   }
 
-  /// Sends periodic heartbeat messages
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -106,13 +177,11 @@ class SSHService {
     });
   }
 
-  /// Stops sending heartbeat messages
   void _stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
   }
 
-  /// Sends a command to the remote shell
   void sendWebSocketCommand(String command) {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -123,7 +192,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Lists files in a given directory
   void listFiles(String directory) {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -134,7 +202,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Stops the current remote process
   void stopCurrentProcess() {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -145,7 +212,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Closes the WebSocket connection
   void closeWebSocket() {
     if (_channel != null) {
       _channel?.sink.close(status.goingAway);
@@ -156,7 +222,6 @@ class SSHService {
     }
   }
 
-  /// Sends a Ctrl+C signal
   void sendCtrlC() {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");

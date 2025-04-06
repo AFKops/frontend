@@ -1,11 +1,21 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/chat_provider.dart';
 import 'chat_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import '../providers/theme_provider.dart';
 import '../utils/secure_storage.dart';
+
+/// Three possible modes
+enum LoginMode {
+  passwordMode, // Original password-based
+  keyManualMode, // Host + user + key
+  keyParsedMode, // Parse "ssh -i key user@host"
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,47 +25,72 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Original controllers
   final TextEditingController _chatNameController = TextEditingController();
   final TextEditingController _sshCommandController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _chatMessageController = TextEditingController();
+  final TextEditingController _manualKeyController = TextEditingController();
+
   bool _obscurePassword = true;
   bool _isConnecting = false;
   bool _savePassword = false;
+  bool _isTypingKey = false;
 
-  /// Starts a general chat (no SSH)
-  void _startGeneralChat(BuildContext context) async {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    String message = _chatMessageController.text.trim();
-    if (message.isEmpty) return;
-    String chatId = await chatProvider.startNewChat(
-      chatName: "General Chat - ${DateTime.now().toLocal()}",
-      host: "",
-      username: "",
-      password: "",
-      isGeneralChat: true,
-    );
-    _chatMessageController.clear();
-    if (mounted) {
-      chatProvider.setCurrentChat(chatId);
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
-      );
+  // Current mode
+  LoginMode _loginMode = LoginMode.passwordMode;
+
+  // For manual key mode
+  final TextEditingController _manualHostController = TextEditingController();
+  final TextEditingController _manualUserController = TextEditingController();
+  String? _keyFilePath;
+
+  // For advanced parse
+  final TextEditingController _advancedSSHController = TextEditingController();
+
+  /// Attempts to pick an SSH key file
+  Future<void> _pickSSHKey() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result != null && result.files.single.path != null) {
+      setState(() {
+        _keyFilePath = result.files.single.path!;
+      });
     }
   }
 
-  /// Connects to a remote server over SSH
+  /// Connect based on selected mode
   void _connectToServer(BuildContext context) async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    String chatName = _chatNameController.text.trim();
+    final chatName = _chatNameController.text.trim();
+
+    if (chatName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ Chat Name is required.")),
+      );
+      return;
+    }
+
+    setState(() => _isConnecting = true);
+
+    if (_loginMode == LoginMode.passwordMode) {
+      await _doPasswordLogin(chatProvider, chatName);
+    } else if (_loginMode == LoginMode.keyManualMode) {
+      await _doKeyManualLogin(chatProvider, chatName);
+    } else {
+      await _doKeyParseLogin(chatProvider, chatName);
+    }
+
+    setState(() => _isConnecting = false);
+  }
+
+  /// Password-based (original logic)
+  Future<void> _doPasswordLogin(
+      ChatProvider chatProvider, String chatName) async {
     String sshCommand = _sshCommandController.text.trim();
     String password = _passwordController.text.trim();
 
-    if (chatName.isEmpty || sshCommand.isEmpty) {
+    if (sshCommand.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("❌ Chat Name and SSH Command are required.")),
+        const SnackBar(content: Text("❌ SSH Command is required.")),
       );
       return;
     }
@@ -66,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Parse "ssh user@host"
     sshCommand = sshCommand.replaceFirst("ssh ", "").trim();
     List<String> parts = sshCommand.split("@");
     if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) {
@@ -79,6 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
     String username = parts[0].trim();
     String host = parts[1].trim();
 
+    // Possibly retrieve saved password
     String? savedPassword =
         await SecureStorage.getPassword(chatProvider.getCurrentChatId());
     if (savedPassword != null && password.isEmpty) {
@@ -86,19 +123,21 @@ class _HomeScreenState extends State<HomeScreen> {
       _passwordController.text = password;
     }
 
+    // If we still have no password, ask user
     if (password.isEmpty) {
-      TextEditingController passwordController = TextEditingController();
       bool shouldSave = false;
+      TextEditingController pwdCtrl = TextEditingController();
+
       await showDialog(
         context: context,
-        builder: (context) {
+        builder: (ctx) {
           return AlertDialog(
             title: const Text("Enter SSH Password"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  controller: passwordController,
+                  controller: pwdCtrl,
                   obscureText: true,
                   decoration: const InputDecoration(labelText: "Password"),
                 ),
@@ -106,9 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Checkbox(
                       value: shouldSave,
-                      onChanged: (value) {
-                        shouldSave = value ?? false;
-                      },
+                      onChanged: (val) => shouldSave = val ?? false,
                     ),
                     const Text("Save Password"),
                   ],
@@ -117,13 +154,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(ctx),
                 child: const Text("Cancel"),
               ),
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.pop(ctx),
                 child: const Text("Connect"),
               ),
             ],
@@ -131,22 +166,17 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       );
 
-      if (passwordController.text.isNotEmpty) {
-        password = passwordController.text;
+      if (pwdCtrl.text.isNotEmpty) {
+        password = pwdCtrl.text;
+        // Save if needed
         if (shouldSave) {
-          await SecureStorage.savePassword(
-            chatProvider.getCurrentChatId(),
-            password,
-            chatName,
-            host,
-            username,
-          );
+          await SecureStorage.savePassword(chatProvider.getCurrentChatId(),
+              password, chatName, host, username);
         }
       }
     }
 
-    setState(() => _isConnecting = true);
-    String chatId = await chatProvider.startNewChat(
+    final chatId = await chatProvider.startNewChat(
       chatName: chatName,
       host: host,
       username: username,
@@ -154,24 +184,17 @@ class _HomeScreenState extends State<HomeScreen> {
       isGeneralChat: false,
       savePassword: _savePassword,
     );
-    setState(() => _isConnecting = false);
 
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
       chatProvider.setCurrentChat(chatId);
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
-        );
-      }
-      if (_savePassword) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
+      );
+      if (_savePassword && password.isNotEmpty) {
         await SecureStorage.savePassword(
-          chatId,
-          password,
-          chatName,
-          host,
-          username,
-        );
+            chatId, password, chatName, host, username);
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -181,34 +204,136 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Attempts SSH connection and retries if it fails
-  Future<String> _attemptConnection(ChatProvider chatProvider, String chatName,
-      String host, String username, String password) async {
-    String chatId = await chatProvider.startNewChat(
+  /// SSH Key: user + host + file path
+  Future<void> _doKeyManualLogin(
+      ChatProvider chatProvider, String chatName) async {
+    String host = _manualHostController.text.trim();
+    String user = _manualUserController.text.trim();
+    final isTypingKey = _manualKeyController.text.trim().isNotEmpty;
+
+    String? keyValue;
+    if (isTypingKey) {
+      keyValue = _manualKeyController.text.trim();
+    } else if (_keyFilePath != null) {
+      keyValue = _keyFilePath;
+    }
+
+    if (host.isEmpty || user.isEmpty || keyValue == null || keyValue.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("❌ Host, username, and key are required.")),
+      );
+      return;
+    }
+
+    final chatId = await chatProvider.startNewChat(
       chatName: chatName,
       host: host,
-      username: username,
-      password: password,
+      username: user,
+      password: keyValue,
       isGeneralChat: false,
+      savePassword: _savePassword,
+      mode: "KEY",
     );
-    if (chatId.isEmpty || !chatProvider.isChatActive(chatId)) {
-      await Future.delayed(const Duration(seconds: 1));
-      String retryChatId = await chatProvider.startNewChat(
-        chatName: chatName,
-        host: host,
-        username: username,
-        password: password,
-        isGeneralChat: false,
+
+    if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
+      chatProvider.setCurrentChat(chatId);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
       );
-      return chatProvider.isChatActive(retryChatId) ? retryChatId : chatId;
+      if (_savePassword) {
+        await SecureStorage.savePassword(
+          chatId,
+          keyValue,
+          chatName,
+          host,
+          user,
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ SSH Key login failed.")),
+      );
     }
-    return chatId;
   }
 
-  /// Builds a single text field widget
-  Widget _buildTextField(TextEditingController controller, String hintText,
-      bool obscureText, bool isDarkMode,
-      {bool isPassword = false}) {
+  /// SSH Key advanced parse: "ssh -i key.pem user@host"
+  Future<void> _doKeyParseLogin(
+      ChatProvider chatProvider, String chatName) async {
+    final raw = _advancedSSHController.text.trim();
+
+    if (!raw.startsWith("ssh -i ")) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ Must start with ssh -i <key> user@host"),
+        ),
+      );
+      return;
+    }
+
+    // Make sure the key file was uploaded
+    if (_keyFilePath == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ Please upload a key file using 'Select Directory'."),
+        ),
+      );
+      return;
+    }
+
+    // Parse command like: ssh -i key.pem user@host
+    final regex = RegExp(r'^ssh\s+-i\s+(\S+)\s+([^@]+)@(.+)$');
+    final match = regex.firstMatch(raw);
+
+    if (match == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ Invalid SSH command format.")),
+      );
+      return;
+    }
+
+    final user = match.group(2)!;
+    final host = match.group(3)!;
+    final keyPath = _keyFilePath!;
+
+    final chatId = await chatProvider.startNewChat(
+      chatName: chatName,
+      host: host,
+      username: user,
+      password: keyPath,
+      isGeneralChat: false,
+      savePassword: _savePassword,
+      mode: "KEY",
+    );
+
+    if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
+      chatProvider.setCurrentChat(chatId);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
+      );
+
+      if (_savePassword) {
+        await SecureStorage.savePassword(chatId, keyPath, chatName, host, user);
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ Key-based login failed.")),
+      );
+    }
+  }
+
+  // For building normal text fields
+  Widget _buildTextField(
+    TextEditingController controller,
+    String hintText,
+    bool obscureText,
+    bool isDarkMode, {
+    bool isPassword = false,
+  }) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -222,32 +347,255 @@ class _HomeScreenState extends State<HomeScreen> {
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: isDarkMode ? Colors.white54 : Colors.black26, width: 1),
+            color: isDarkMode ? Colors.white54 : Colors.black26,
+            width: 1,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: isDarkMode ? Colors.white38 : Colors.black26, width: 1),
+            color: isDarkMode ? Colors.white38 : Colors.black26,
+            width: 1,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: isDarkMode ? Colors.white : Colors.black, width: 1),
+            color: isDarkMode ? Colors.white : Colors.black,
+            width: 1,
+          ),
         ),
         suffixIcon: isPassword
             ? IconButton(
                 icon: Icon(
-                    obscureText ? Icons.visibility : Icons.visibility_off,
-                    color: isDarkMode ? Colors.white : Colors.black),
+                  obscureText ? Icons.visibility : Icons.visibility_off,
+                  color: isDarkMode ? Colors.white : Colors.black,
+                ),
                 onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
+                  setState(() => _obscurePassword = !_obscurePassword);
                 },
               )
             : null,
       ),
     );
+  }
+
+  /// The row of 3 icon buttons for mode switching
+  Widget _buildModeButtons(bool isDarkMode) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildIconMode(
+          iconData: Icons.lock,
+          mode: LoginMode.passwordMode,
+          tooltip: "Password Login",
+          isDarkMode: isDarkMode,
+        ),
+        const SizedBox(width: 12),
+        _buildIconMode(
+          iconData: Icons.vpn_key,
+          mode: LoginMode.keyManualMode,
+          tooltip: "Manual Key Login",
+          isDarkMode: isDarkMode,
+        ),
+        const SizedBox(width: 12),
+        _buildIconMode(
+          iconData: Icons.smart_toy,
+          mode: LoginMode.keyParsedMode,
+          tooltip: "Advanced SSH Parsing",
+          isDarkMode: isDarkMode,
+        ),
+      ],
+    );
+  }
+
+  /// A single icon-based mode button
+  Widget _buildIconMode({
+    required IconData iconData,
+    required LoginMode mode,
+    required String tooltip,
+    required bool isDarkMode,
+  }) {
+    bool selected = (_loginMode == mode);
+
+    // 10% bigger: normal icons ~24, so let's do ~26 or 28
+    const double iconSize = 28;
+    // 8px corner radius
+    const double cornerRadius = 8.0;
+
+    // Colors
+    Color bgColor, iconColor, borderColor;
+    if (isDarkMode) {
+      if (selected) {
+        bgColor = Colors.black;
+        iconColor = Colors.white;
+        borderColor = Colors.white;
+      } else {
+        bgColor = Colors.transparent;
+        iconColor = Colors.white54;
+        borderColor = Colors.white54;
+      }
+    } else {
+      if (selected) {
+        bgColor = Colors.white;
+        iconColor = Colors.black;
+        borderColor = Colors.black;
+      } else {
+        bgColor = Colors.transparent;
+        iconColor = Colors.black54;
+        borderColor = Colors.black54;
+      }
+    }
+
+    return GestureDetector(
+      onTap: () => setState(() => _loginMode = mode),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(cornerRadius),
+          border: Border.all(color: borderColor),
+        ),
+        child: Icon(iconData, color: iconColor, size: iconSize),
+      ),
+    );
+  }
+
+  /// Builds the card for whichever mode is selected
+  Widget _buildModeCard(bool isDarkMode) {
+    switch (_loginMode) {
+      case LoginMode.passwordMode:
+        return Column(
+          children: [
+            const SizedBox(height: 10),
+            _buildTextField(_sshCommandController,
+                "SSH Command (e.g., ssh user@host)", false, isDarkMode),
+            const SizedBox(height: 10),
+            _buildTextField(
+                _passwordController, "Password", _obscurePassword, isDarkMode,
+                isPassword: true),
+            const SizedBox(height: 10),
+          ],
+        );
+
+      case LoginMode.keyManualMode:
+        return Column(
+          children: [
+            const SizedBox(height: 10),
+            _buildTextField(_manualHostController, "Host (e.g. 1.2.3.4)", false,
+                isDarkMode),
+            const SizedBox(height: 10),
+            _buildTextField(_manualUserController, "Username (e.g. ubuntu)",
+                false, isDarkMode),
+            const SizedBox(height: 10),
+
+            // File picker or key textarea
+            _isTypingKey
+                ? TextField(
+                    controller: _manualKeyController,
+                    maxLines: 6,
+                    style: TextStyle(
+                        color: isDarkMode ? Colors.white : Colors.black),
+                    decoration: InputDecoration(
+                      hintText: "Paste SSH Private Key here...",
+                      hintStyle: TextStyle(
+                          color:
+                              isDarkMode ? Colors.white54 : Colors.grey[700]),
+                      filled: true,
+                      fillColor:
+                          isDarkMode ? Colors.grey[900] : Colors.grey[200],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => setState(() => _isTypingKey = false),
+                      ),
+                    ),
+                  )
+                : GestureDetector(
+                    onTap: _pickSSHKey,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDarkMode ? Colors.white38 : Colors.black26,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.upload_file,
+                              color: isDarkMode ? Colors.white : Colors.black),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _keyFilePath == null
+                                  ? "Pick SSH Key File"
+                                  : _keyFilePath!.split('/').last,
+                              style: TextStyle(
+                                  color:
+                                      isDarkMode ? Colors.white : Colors.black),
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.edit,
+                                color: isDarkMode
+                                    ? Colors.white54
+                                    : Colors.black54),
+                            onPressed: () =>
+                                setState(() => _isTypingKey = true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+            const SizedBox(height: 10),
+          ],
+        );
+
+      case LoginMode.keyParsedMode:
+        return Column(
+          children: [
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: _pickSSHKey,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: isDarkMode ? Colors.white38 : Colors.black26),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open,
+                        color: isDarkMode ? Colors.white : Colors.black),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _keyFilePath ?? "Open directory",
+                        style: TextStyle(
+                          color: isDarkMode ? Colors.white : Colors.black,
+                        ),
+                        overflow: TextOverflow
+                            .ellipsis, // Optional: Truncates long paths
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _buildTextField(_advancedSSHController, "ssh -i key.pem user@host",
+                false, isDarkMode),
+            const SizedBox(height: 10),
+          ],
+        );
+    }
   }
 
   @override
@@ -285,184 +633,86 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Text(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            const Text(
               "What can I help with?",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15.0),
-            child: Column(
+            const SizedBox(height: 20),
+
+            // Chat Name always
+            _buildTextField(
+                _chatNameController, "Chat Name", false, isDarkMode),
+            const SizedBox(height: 10),
+
+            // 3 Icons row
+            _buildModeButtons(isDarkMode),
+
+            // The dynamic card for whichever mode is selected
+            _buildModeCard(isDarkMode),
+
+            // Save cred & Connect
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildTextField(
-                    _chatNameController, "Chat Name", false, isDarkMode),
-                const SizedBox(height: 10),
-                _buildTextField(_sshCommandController,
-                    "SSH Command (e.g., ssh root@IP)", false, isDarkMode),
-                const SizedBox(height: 10),
-                _buildTextField(_passwordController, "Password",
-                    _obscurePassword, isDarkMode,
-                    isPassword: true),
-                const SizedBox(height: 10),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _savePassword,
-                          onChanged: (value) async {
-                            setState(() {
-                              _savePassword = value ?? false;
-                            });
-                            if (_savePassword &&
-                                _passwordController.text.isNotEmpty) {
-                              final chatProvider = Provider.of<ChatProvider>(
-                                  context,
-                                  listen: false);
-                              String sshCommand =
-                                  _sshCommandController.text.trim();
-                              if (!sshCommand.startsWith("ssh ")) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          "❌ Invalid SSH command format.")),
-                                );
-                                return;
-                              }
-                              sshCommand =
-                                  sshCommand.replaceFirst("ssh ", "").trim();
-                              List<String> parts = sshCommand.split("@");
-                              if (parts.length != 2 ||
-                                  parts[0].isEmpty ||
-                                  parts[1].isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          "❌ Invalid SSH format. Use: ssh user@host")),
-                                );
-                                return;
-                              }
-                              String username = parts[0].trim();
-                              String host = parts[1].trim();
-                              await SecureStorage.savePassword(
-                                chatProvider.getCurrentChatId(),
-                                _passwordController.text,
-                                _chatNameController.text.trim(),
-                                host,
-                                username,
-                              );
-                            }
-                          },
-                          activeColor: isDarkMode ? Colors.white : Colors.black,
-                        ),
-                        Text("Save Password",
-                            style: TextStyle(
-                                color:
-                                    isDarkMode ? Colors.white : Colors.black)),
-                      ],
+                    Checkbox(
+                      value: _savePassword,
+                      onChanged: (val) =>
+                          setState(() => _savePassword = val ?? false),
+                      activeColor: isDarkMode ? Colors.white : Colors.black,
                     ),
-                    _isConnecting
-                        ? const CircularProgressIndicator()
-                        : ElevatedButton(
-                            onPressed: () => _connectToServer(context),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  isDarkMode ? Colors.white : Colors.black,
-                              foregroundColor:
-                                  isDarkMode ? Colors.black : Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 40, vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                    color: isDarkMode
-                                        ? Colors.white
-                                        : Colors.black,
-                                    width: 1),
-                              ),
-                            ),
-                            child: const Text("Connect"),
-                          ),
+                    Text(
+                      _loginMode == LoginMode.passwordMode
+                          ? "Save Password"
+                          : "Save Key",
+                      style: TextStyle(
+                          color: isDarkMode ? Colors.white : Colors.black),
+                    ),
                   ],
                 ),
+                _isConnecting
+                    ? const CircularProgressIndicator()
+                    : ElevatedButton(
+                        onPressed: () => _connectToServer(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              isDarkMode ? Colors.white : Colors.black,
+                          foregroundColor:
+                              isDarkMode ? Colors.black : Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 40, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                                color: isDarkMode ? Colors.white : Colors.black,
+                                width: 1),
+                          ),
+                        ),
+                        child: const Text("Connect"),
+                      ),
               ],
             ),
-          ),
-          const Spacer(),
-          _chatInputBox(isDarkMode),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  /// Builds the chat input box for a general chat
-  Widget _chatInputBox(bool isDarkMode) {
-    return Padding(
-      padding: const EdgeInsets.all(10.0),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _chatMessageController,
-              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
-              decoration: InputDecoration(
-                hintText: "Start a chat...",
-                hintStyle: TextStyle(
-                    color: isDarkMode ? Colors.grey[500] : Colors.grey[700]),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25),
-                  borderSide: BorderSide(
-                      color: isDarkMode ? Colors.white54 : Colors.black26,
-                      width: 1),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25),
-                  borderSide: BorderSide(
-                      color: isDarkMode ? Colors.white38 : Colors.black26,
-                      width: 1),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25),
-                  borderSide: BorderSide(
-                      color: isDarkMode ? Colors.white : Colors.black,
-                      width: 1),
-                ),
-                filled: true,
-                fillColor: Colors.transparent,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.send,
-                color: isDarkMode ? Colors.white : Colors.black),
-            onPressed: () async {
-              String message = _chatMessageController.text.trim();
-              if (message.isEmpty) return;
-              _chatMessageController.clear();
-              final chatProvider =
-                  Provider.of<ChatProvider>(context, listen: false);
-              String chatId = await chatProvider.startNewChat(
-                chatName: "General Chat",
-                isGeneralChat: true,
-              );
-              chatProvider.setCurrentChat(chatId);
-              chatProvider.addMessage(chatId, message, isUser: true);
-              if (mounted) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => ChatScreen(chatId: chatId)),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _chatNameController.dispose();
+    _sshCommandController.dispose();
+    _passwordController.dispose();
+    _manualHostController.dispose();
+    _manualUserController.dispose();
+    _advancedSSHController.dispose();
+    _manualKeyController.dispose(); // 👈 add this line here
+    super.dispose();
   }
 }
