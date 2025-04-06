@@ -633,73 +633,86 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            const Text(
-              "What can I help with?",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-
-            // Chat Name always
-            _buildTextField(
-                _chatNameController, "Chat Name", false, isDarkMode),
-            const SizedBox(height: 10),
-
-            // 3 Icons row
-            _buildModeButtons(isDarkMode),
-
-            // The dynamic card for whichever mode is selected
-            _buildModeCard(isDarkMode),
-
-            // Save cred & Connect
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _savePassword,
-                      onChanged: (val) =>
-                          setState(() => _savePassword = val ?? false),
-                      activeColor: isDarkMode ? Colors.white : Colors.black,
-                    ),
-                    Text(
-                      _loginMode == LoginMode.passwordMode
-                          ? "Save Password"
-                          : "Save Key",
-                      style: TextStyle(
-                          color: isDarkMode ? Colors.white : Colors.black),
-                    ),
-                  ],
-                ),
-                _isConnecting
-                    ? const CircularProgressIndicator()
-                    : ElevatedButton(
-                        onPressed: () => _connectToServer(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              isDarkMode ? Colors.white : Colors.black,
-                          foregroundColor:
-                              isDarkMode ? Colors.black : Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 40, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
-                                color: isDarkMode ? Colors.white : Colors.black,
-                                width: 1),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  const Text(
+                    "What can I help with?",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildTextField(
+                      _chatNameController, "Chat Name", false, isDarkMode),
+                  const SizedBox(height: 10),
+                  _buildModeButtons(isDarkMode),
+                  _buildModeCard(isDarkMode),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _savePassword,
+                            onChanged: (val) =>
+                                setState(() => _savePassword = val ?? false),
+                            activeColor:
+                                isDarkMode ? Colors.white : Colors.black,
                           ),
-                        ),
-                        child: const Text("Connect"),
+                          Text(
+                            _loginMode == LoginMode.passwordMode
+                                ? "Save Password"
+                                : "Save Key",
+                            style: TextStyle(
+                                color:
+                                    isDarkMode ? Colors.white : Colors.black),
+                          ),
+                        ],
                       ),
-              ],
+                      _isConnecting
+                          ? const CircularProgressIndicator()
+                          : ElevatedButton(
+                              onPressed: () => _connectToServer(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    isDarkMode ? Colors.white : Colors.black,
+                                foregroundColor:
+                                    isDarkMode ? Colors.black : Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 40, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(
+                                    color: isDarkMode
+                                        ? Colors.white
+                                        : Colors.black,
+                                    width: 1,
+                                  ),
+                                ),
+                              ),
+                              child: const Text("Connect"),
+                            ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Version 1.1 beta',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode ? Colors.grey[600] : Colors.grey[800],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
