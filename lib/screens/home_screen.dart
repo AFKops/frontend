@@ -248,37 +248,50 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// SSH Key advanced parse: "ssh -i key.pem user@host"
+  /// SSH Key advanced parse: "ssh -i key.pem user@host"
   Future<void> _doKeyParseLogin(
       ChatProvider chatProvider, String chatName) async {
     final raw = _advancedSSHController.text.trim();
+
     if (!raw.startsWith("ssh -i ")) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text("❌ Must start with ssh -i <key> user@host")),
+          content: Text("❌ Must start with ssh -i <key> user@host"),
+        ),
       );
       return;
     }
 
+    // Make sure the key file was uploaded
+    if (_keyFilePath == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ Please upload a key file using 'Select Directory'."),
+        ),
+      );
+      return;
+    }
+
+    // Parse command like: ssh -i key.pem user@host
     final regex = RegExp(r'^ssh\s+-i\s+(\S+)\s+([^@]+)@(.+)$');
     final match = regex.firstMatch(raw);
+
     if (match == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❌ Invalid advanced SSH format.")),
+        const SnackBar(content: Text("❌ Invalid SSH command format.")),
       );
       return;
     }
 
-    final keyFile = match.group(1)!; // e.g. key.pem
-    final user = match.group(2)!; // e.g. ec2-user
-    final host = match.group(3)!; // e.g. ec2-xx.compute.amazonaws.com
+    final user = match.group(2)!;
+    final host = match.group(3)!;
+    final keyPath = _keyFilePath!;
 
-    // We'll store the keyFile name in the password field
-    // Ideally you'd also let the user pick a file or match it
     final chatId = await chatProvider.startNewChat(
       chatName: chatName,
       host: host,
       username: user,
-      password: keyFile,
+      password: keyPath,
       isGeneralChat: false,
       savePassword: _savePassword,
       mode: "KEY",
@@ -291,12 +304,13 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
         MaterialPageRoute(builder: (context) => ChatScreen(chatId: chatId)),
       );
+
       if (_savePassword) {
-        await SecureStorage.savePassword(chatId, keyFile, chatName, host, user);
+        await SecureStorage.savePassword(chatId, keyPath, chatName, host, user);
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❌ Key-based parsing failed.")),
+        const SnackBar(content: Text("❌ Key-based login failed.")),
       );
     }
   }
@@ -498,6 +512,36 @@ class _HomeScreenState extends State<HomeScreen> {
       case LoginMode.keyParsedMode:
         return Column(
           children: [
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: _pickSSHKey,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: isDarkMode ? Colors.white38 : Colors.black26),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open,
+                        color: isDarkMode ? Colors.white : Colors.black),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _keyFilePath ?? "Open directory",
+                        style: TextStyle(
+                          color: isDarkMode ? Colors.white : Colors.black,
+                        ),
+                        overflow: TextOverflow
+                            .ellipsis, // Optional: Truncates long paths
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 10),
             _buildTextField(_advancedSSHController, "ssh -i key.pem user@host",
                 false, isDarkMode),

@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import '../utils/encryption_service.dart';
-import 'dart:io';
 
 class SSHService {
   final String wsUrl = "ws://afkops.com/ssh-stream";
@@ -20,7 +20,7 @@ class SSHService {
     required String username,
     String password = "",
     String privateKey = "",
-    String mode = "PASSWORD", // "PASSWORD" or "KEY"
+    String mode = "PASSWORD", // PASSWORD, KEY, ADVANCED
     required Function(String) onMessageReceived,
     required Function(String) onError,
     Function()? onDisconnected,
@@ -44,10 +44,39 @@ class SSHService {
       return;
     }
 
+    String finalHost = host;
+    String finalUsername = username;
+    String finalPrivateKey = privateKey;
+
+    // ADVANCED mode auto-parsing
+    if (mode == "ADVANCED") {
+      try {
+        final parts = host.split(RegExp(r'\s+'));
+        if (parts.length < 4) {
+          onError("Invalid SSH command format. Use: ssh -i key.pem user@host");
+          return;
+        }
+
+        final keyPath = parts[2];
+        final userAtHost = parts[3];
+
+        finalUsername = userAtHost.split('@')[0];
+        finalHost = userAtHost.split('@')[1];
+        finalPrivateKey = keyPath;
+
+        print("🔍 ADVANCED parsed host: $finalHost");
+        print("🔍 ADVANCED parsed username: $finalUsername");
+        print("🔍 ADVANCED parsed key path: $finalPrivateKey");
+      } catch (e) {
+        onError("Failed to parse SSH command: $e");
+        return;
+      }
+    }
+
     final encryptedHost =
-        await EncryptionService.encryptAESCBC(host, encryptionKey);
+        await EncryptionService.encryptAESCBC(finalHost, encryptionKey);
     final encryptedUser =
-        await EncryptionService.encryptAESCBC(username, encryptionKey);
+        await EncryptionService.encryptAESCBC(finalUsername, encryptionKey);
 
     String? encryptedPassword;
     String? encryptedKey;
@@ -55,17 +84,18 @@ class SSHService {
     if (mode == "PASSWORD") {
       encryptedPassword =
           await EncryptionService.encryptAESCBC(password, encryptionKey);
-    } else if (mode == "KEY") {
-      final pemContent = await File(privateKey).readAsString(); // read the file
-      final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
+    } else if (mode == "KEY" || mode == "ADVANCED") {
+      try {
+        final pemContent = await File(finalPrivateKey).readAsString();
+        final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
 
-      print("🔐 Original PEM key:\n$pemContent");
-      print("📦 Base64-encoded PEM:\n$privateKeyBase64");
-
-      encryptedKey = await EncryptionService.encryptAESCBC(
-          privateKeyBase64, encryptionKey);
-
-      print("🧪 Encrypted PEM key (base64+AES-CBC):\n$encryptedKey");
+        encryptedKey = await EncryptionService.encryptAESCBC(
+            privateKeyBase64, encryptionKey);
+        print("🧪 Encrypted PEM key (base64+AES-CBC):\n$encryptedKey");
+      } catch (e) {
+        onError("Failed to read PEM file: $e");
+        return;
+      }
     } else {
       onError("Unknown mode: $mode");
       return;
@@ -73,23 +103,15 @@ class SSHService {
 
     final connectMsg = {
       "action": "CONNECT",
-      "mode": mode,
+      "mode": mode == "ADVANCED" ? "KEY" : mode, // treat ADVANCED as KEY
       "host": encryptedHost,
       "username": encryptedUser,
     };
 
     if (mode == "PASSWORD") {
-      if (encryptedPassword == null) {
-        onError("Encryption failed for password");
-        return;
-      }
-      connectMsg["password"] = encryptedPassword;
+      connectMsg["password"] = encryptedPassword!;
     } else {
-      if (encryptedKey == null) {
-        onError("Encryption failed for private key");
-        return;
-      }
-      connectMsg["key"] = encryptedKey;
+      connectMsg["key"] = encryptedKey!;
     }
 
     print("Sending CONNECT action (mode=$mode)");
@@ -112,7 +134,7 @@ class SSHService {
             onMessageReceived?.call(jsonEncode({"directories": dirs}));
           }
         } catch (e) {
-          print("Error parsing or handling WebSocket message: $e");
+          print("Error parsing WebSocket message: $e");
         }
       },
       onError: (error) {
@@ -136,9 +158,7 @@ class SSHService {
     _isConnected = false;
     _channel = null;
     _stopHeartbeat();
-    if (onDisconnected != null) {
-      onDisconnected!();
-    }
+    onDisconnected?.call();
   }
 
   void _startHeartbeat() {
