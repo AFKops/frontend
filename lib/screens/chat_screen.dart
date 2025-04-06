@@ -340,16 +340,27 @@ class _ChatScreenState extends State<ChatScreen> {
     if (chatData == null) return;
 
     final saved = chatData['passwordSaved'] == true;
-    final savedPwd = chatData['password'];
+    final savedValue = chatData['password'];
+    final mode = (chatData['mode'] ?? 'PASSWORD') as String;
 
-    if (saved && savedPwd != null && savedPwd.isNotEmpty) {
-      await chatProvider.reconnectChat(widget.chatId, savedPwd);
+    if (saved && savedValue != null && savedValue.isNotEmpty) {
+      // If saved, use directly
+      await chatProvider.reconnectChat(widget.chatId, savedValue);
+    } else if (mode == "KEY") {
+      final decryptedKey = await SecureStorage.getPassword(widget.chatId);
+      if (decryptedKey != null && decryptedKey.isNotEmpty) {
+        await chatProvider.reconnectChat(widget.chatId, decryptedKey);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text("🔐 No SSH key found for this session.")),
+        );
+      }
     } else {
       final typedPwd = await _askForPassword(context);
       if (typedPwd == null) {
-        return; // user canceled or never succeeded
+        return; // user canceled or failed
       }
-      // If ephemeral usage only, do nothing more here
     }
   }
 

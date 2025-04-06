@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import '../utils/encryption_service.dart';
+import 'dart:io';
 
-/// Manages a single persistent WebSocket connection to the Python /ssh-stream
 class SSHService {
   final String wsUrl = "ws://afkops.com/ssh-stream";
   WebSocketChannel? _channel;
@@ -15,11 +15,12 @@ class SSHService {
 
   Timer? _heartbeatTimer;
 
-  /// Connects to the WebSocket with action=CONNECT
-  void connectToWebSocket({
+  Future<void> connectToWebSocket({
     required String host,
     required String username,
-    required String password,
+    String password = "",
+    String privateKey = "",
+    String mode = "PASSWORD", // "PASSWORD" or "KEY"
     required Function(String) onMessageReceived,
     required Function(String) onError,
     Function()? onDisconnected,
@@ -43,50 +44,94 @@ class SSHService {
       return;
     }
 
-    final encryptedHost = encryptFernet(host, encryptionKey);
-    final encryptedUsername = encryptFernet(username, encryptionKey);
-    final encryptedPassword = encryptFernet(password, encryptionKey);
+    final encryptedHost =
+        await EncryptionService.encryptAESCBC(host, encryptionKey);
+    final encryptedUser =
+        await EncryptionService.encryptAESCBC(username, encryptionKey);
+
+    String? encryptedPassword;
+    String? encryptedKey;
+
+    if (mode == "PASSWORD") {
+      encryptedPassword =
+          await EncryptionService.encryptAESCBC(password, encryptionKey);
+    } else if (mode == "KEY") {
+      final pemContent = await File(privateKey).readAsString(); // read the file
+      final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
+
+      print("🔐 Original PEM key:\n$pemContent");
+      print("📦 Base64-encoded PEM:\n$privateKeyBase64");
+
+      encryptedKey = await EncryptionService.encryptAESCBC(
+          privateKeyBase64, encryptionKey);
+
+      print("🧪 Encrypted PEM key (base64+AES-CBC):\n$encryptedKey");
+    } else {
+      onError("Unknown mode: $mode");
+      return;
+    }
 
     final connectMsg = {
       "action": "CONNECT",
+      "mode": mode,
       "host": encryptedHost,
-      "username": encryptedUsername,
-      "password": encryptedPassword,
+      "username": encryptedUser,
     };
 
-    print("Sending encrypted CONNECT action");
+    if (mode == "PASSWORD") {
+      if (encryptedPassword == null) {
+        onError("Encryption failed for password");
+        return;
+      }
+      connectMsg["password"] = encryptedPassword;
+    } else {
+      if (encryptedKey == null) {
+        onError("Encryption failed for private key");
+        return;
+      }
+      connectMsg["key"] = encryptedKey;
+    }
+
+    print("Sending CONNECT action (mode=$mode)");
     _channel?.sink.add(jsonEncode(connectMsg));
 
     _startHeartbeat();
 
     _channel?.stream.listen(
       (rawMessage) {
-        final data = jsonDecode(rawMessage);
-        if (data['output'] != null) {
-          onMessageReceived(data['output'].toString());
-        } else if (data['error'] != null) {
-          onError(data['error'].toString());
-        } else if (data['info'] != null) {
-          onMessageReceived(data['info'].toString());
-        } else if (data['directories'] != null) {
-          final dirs = data['directories'] as List;
-          onMessageReceived(jsonEncode({"directories": dirs}));
+        try {
+          final data = jsonDecode(rawMessage);
+          if (data['output'] != null) {
+            onMessageReceived?.call(data['output'].toString());
+          } else if (data['error'] != null) {
+            onError?.call(data['error'].toString());
+          } else if (data['info'] != null) {
+            onMessageReceived?.call(data['info'].toString());
+          } else if (data['directories'] != null) {
+            final dirs = data['directories'] as List;
+            onMessageReceived?.call(jsonEncode({"directories": dirs}));
+          }
+        } catch (e) {
+          print("Error parsing or handling WebSocket message: $e");
         }
       },
       onError: (error) {
         print("WebSocket Error: $error");
         _handleDisconnect();
-        onError('WebSocket error: $error');
+        try {
+          onError?.call('WebSocket error: $error');
+        } catch (_) {}
       },
       onDone: () {
         print("WebSocket connection closed.");
         _handleDisconnect();
-        onError('WebSocket connection closed');
+        try {
+          onError?.call('WebSocket connection closed');
+        } catch (_) {}
       },
     );
   }
 
-  /// Handles a WebSocket disconnection
   void _handleDisconnect() {
     _isConnected = false;
     _channel = null;
@@ -96,7 +141,6 @@ class SSHService {
     }
   }
 
-  /// Sends periodic heartbeat messages
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -106,13 +150,11 @@ class SSHService {
     });
   }
 
-  /// Stops sending heartbeat messages
   void _stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
   }
 
-  /// Sends a command to the remote shell
   void sendWebSocketCommand(String command) {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -123,7 +165,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Lists files in a given directory
   void listFiles(String directory) {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -134,7 +175,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Stops the current remote process
   void stopCurrentProcess() {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");
@@ -145,7 +185,6 @@ class SSHService {
     _channel?.sink.add(jsonEncode(msg));
   }
 
-  /// Closes the WebSocket connection
   void closeWebSocket() {
     if (_channel != null) {
       _channel?.sink.close(status.goingAway);
@@ -156,7 +195,6 @@ class SSHService {
     }
   }
 
-  /// Sends a Ctrl+C signal
   void sendCtrlC() {
     if (_channel == null || !_isConnected) {
       print("Not connected. Please connect first.");

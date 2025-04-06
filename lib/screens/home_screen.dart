@@ -223,9 +223,10 @@ class _HomeScreenState extends State<HomeScreen> {
       chatName: chatName,
       host: host,
       username: user,
-      password: password, // key path
+      password: password,
       isGeneralChat: false,
       savePassword: _savePassword,
+      mode: "KEY",
     );
 
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {
@@ -280,6 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
       password: keyFile,
       isGeneralChat: false,
       savePassword: _savePassword,
+      mode: "KEY",
     );
 
     if (chatId.isNotEmpty && chatProvider.isChatActive(chatId)) {

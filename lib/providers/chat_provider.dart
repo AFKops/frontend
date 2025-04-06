@@ -11,27 +11,23 @@ class ChatProvider extends ChangeNotifier {
   String _currentChatId = "";
   bool _isConnected = false;
 
-  /// Returns the chat map for a given chatId
   Map<String, dynamic>? getChatById(String chatId) {
     return _chats[chatId];
   }
 
-  /// Returns all chatIds
   List<String> getChatIds() {
     return _chats.keys.toList();
   }
 
-  /// Returns the current directory for the chat
   String getCurrentPath(String chatId) {
     return _chats[chatId]?['currentDirectory'] ?? "/root";
   }
 
-  /// Base64-encodes a password
+  // Existing function (unused for key-based approach)
   String encodePassword(String password) {
     return base64.encode(utf8.encode(password));
   }
 
-  /// Updates the current path for a chat
   void updateCurrentPath(String chatId, String newPath) {
     if (_chats.containsKey(chatId) && _chats[chatId] != null) {
       _chats[chatId]!['currentDirectory'] = newPath;
@@ -39,19 +35,16 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Returns the entire chats map
   Map<String, Map<String, dynamic>> get chats => _chats;
 
   ChatProvider() {
     loadChatHistory();
   }
 
-  /// Returns the messages for a given chat
   List<Map<String, dynamic>> getMessages(String chatId) {
     return List<Map<String, dynamic>>.from(_chats[chatId]?['messages'] ?? []);
   }
 
-  /// Gets the chat name or a timestamp if none
   String getChatName(String chatId) {
     return _chats[chatId]?['name'] ??
         formatTimestamp(
@@ -59,16 +52,13 @@ class ChatProvider extends ChangeNotifier {
         );
   }
 
-  /// Formats ISO8601 timestamps
   String formatTimestamp(String timestamp) {
     DateTime dateTime = DateTime.parse(timestamp);
     return DateFormat('MMM d, yyyy | h:mm a').format(dateTime);
   }
 
-  /// Checks if any chat is connected
   bool isConnected() => _isConnected;
 
-  /// Goes up one directory for a given chat
   void goBackDirectory(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -76,7 +66,8 @@ class ChatProvider extends ChangeNotifier {
     ssh?.sendWebSocketCommand("cd .. && pwd");
   }
 
-  /// Creates or reuses a chat, handles SSH connection and authentication
+  /// Creates or reuses a chat (SSH or general)
+  /// mode can be "PASSWORD" or "KEY"
   Future<String> startNewChat({
     required String chatName,
     String host = "",
@@ -84,6 +75,7 @@ class ChatProvider extends ChangeNotifier {
     String password = "",
     bool isGeneralChat = false,
     bool savePassword = false,
+    String mode = "PASSWORD", // NEW for key-based mode (default=PASSWORD)
   }) async {
     final effectivePassword = (!isGeneralChat && savePassword) ? password : "";
     final isPwSaved = (!isGeneralChat && savePassword && password.isNotEmpty);
@@ -117,6 +109,7 @@ class ChatProvider extends ChangeNotifier {
       'inProgress': false,
       'fileSuggestions': <String>[],
       'customCommands': <String>[],
+      'mode': mode, // NEW: store the auth mode in the chat data
     };
 
     setCurrentChat(newChatId);
@@ -139,25 +132,53 @@ class ChatProvider extends ChangeNotifier {
     try {
       Completer<String> authCompleter = Completer<String>();
 
-      ssh.connectToWebSocket(
-        host: host,
-        username: username,
-        password: password,
-        onMessageReceived: (output) {
-          if (output.contains("❌ Authentication failed")) {
+      // If mode == "KEY", we pass password as "privateKey"
+      // If mode == "PASSWORD", we pass password normally.
+      if (mode == "KEY") {
+        ssh.connectToWebSocket(
+          host: host,
+          username: username,
+          password: "", // we skip password param if we're using KEY
+          privateKey: password, // store the actual password field as key now
+          mode: "KEY",
+          onMessageReceived: (output) {
+            if (output.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (output.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(newChatId, output);
+          },
+          onError: (err) {
             authCompleter.complete("FAIL");
-          } else if (output.contains("Interactive Bash session started.")) {
-            authCompleter.complete("SUCCESS");
-          }
-          _handleServerOutput(newChatId, output);
-        },
-        onError: (err) {
-          authCompleter.complete("FAIL");
-          addMessage(newChatId, "❌ $err", isUser: false);
-          _isConnected = false;
-          notifyListeners();
-        },
-      );
+            addMessage(newChatId, "❌ $err", isUser: false);
+            _isConnected = false;
+            notifyListeners();
+          },
+        );
+      } else {
+        ssh.connectToWebSocket(
+          host: host,
+          username: username,
+          password: password,
+          privateKey: "", // empty, not used in password mode
+          mode: "PASSWORD",
+          onMessageReceived: (output) {
+            if (output.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (output.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(newChatId, output);
+          },
+          onError: (err) {
+            authCompleter.complete("FAIL");
+            addMessage(newChatId, "❌ $err", isUser: false);
+            _isConnected = false;
+            notifyListeners();
+          },
+        );
+      }
 
       String authResult = await authCompleter.future
           .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
@@ -185,7 +206,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Finds an existing SSH chat by host, username, and name
   String? _findExistingSshChat(String host, String username, String chatName) {
     for (final entry in _chats.entries) {
       final map = entry.value;
@@ -198,7 +218,6 @@ class ChatProvider extends ChangeNotifier {
     return null;
   }
 
-  /// Sets the current chatId
   void setCurrentChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       _currentChatId = chatId;
@@ -206,10 +225,8 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Gets the current chatId
   String getCurrentChatId() => _currentChatId;
 
-  /// Disconnects a given chat
   void disconnectChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       _chats[chatId]?['connected'] = false;
@@ -218,7 +235,7 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Reconnects a chat with a provided password
+  /// Reconnect with given password or key, depending on mode stored in chat data
   Future<void> reconnectChat(String chatId, String password) async {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -226,35 +243,67 @@ class ChatProvider extends ChangeNotifier {
     if (chatData['service'] == null) {
       chatData['service'] = SSHService();
     }
-
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return;
+
+    final mode = (chatData['mode'] ?? "PASSWORD") as String;
+    final host = chatData['host'] ?? "";
+    final user = chatData['username'] ?? "";
 
     try {
       Completer<String> authCompleter = Completer<String>();
 
-      ssh.connectToWebSocket(
-        host: chatData['host'],
-        username: chatData['username'],
-        password: password,
-        onMessageReceived: (line) {
-          if (line.contains("❌ Authentication failed")) {
+      if (mode == "KEY") {
+        ssh.connectToWebSocket(
+          host: host,
+          username: user,
+          password: "", // not used in KEY mode
+          privateKey: password,
+          mode: "KEY",
+          onMessageReceived: (line) {
+            if (line.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (line.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(chatId, line);
+          },
+          onError: (err) {
             authCompleter.complete("FAIL");
-          } else if (line.contains("Interactive Bash session started.")) {
-            authCompleter.complete("SUCCESS");
-          }
-          _handleServerOutput(chatId, line);
-        },
-        onError: (err) {
-          authCompleter.complete("FAIL");
-          disconnectChat(chatId);
-          addMessage(chatId, "❌ $err", isUser: false);
-        },
-        onDisconnected: () {
-          disconnectChat(chatId);
-          addMessage(chatId, "🔌 Disconnected from server", isUser: false);
-        },
-      );
+            disconnectChat(chatId);
+            addMessage(chatId, "❌ $err", isUser: false);
+          },
+          onDisconnected: () {
+            disconnectChat(chatId);
+            addMessage(chatId, "🔌 Disconnected from server", isUser: false);
+          },
+        );
+      } else {
+        ssh.connectToWebSocket(
+          host: host,
+          username: user,
+          password: password,
+          privateKey: "",
+          mode: "PASSWORD",
+          onMessageReceived: (line) {
+            if (line.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (line.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(chatId, line);
+          },
+          onError: (err) {
+            authCompleter.complete("FAIL");
+            disconnectChat(chatId);
+            addMessage(chatId, "❌ $err", isUser: false);
+          },
+          onDisconnected: () {
+            disconnectChat(chatId);
+            addMessage(chatId, "🔌 Disconnected from server", isUser: false);
+          },
+        );
+      }
 
       String authResult = await authCompleter.future
           .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
@@ -262,13 +311,11 @@ class ChatProvider extends ChangeNotifier {
       if (authResult == "SUCCESS") {
         chatData['connected'] = true;
         _isConnected = true;
-        addMessage(chatId, "✅ Reconnected to ${chatData['host']}",
-            isUser: false);
+        addMessage(chatId, "✅ Reconnected to $host", isUser: false);
       } else {
         disconnectChat(chatId);
         addMessage(chatId, "❌ Authentication failed", isUser: false);
       }
-
       notifyListeners();
     } catch (e) {
       disconnectChat(chatId);
@@ -276,7 +323,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Reconnects and returns true if auth succeeded, otherwise false
   Future<bool> reconnectAndCheck(String chatId, String password) async {
     final chatData = _chats[chatId];
     if (chatData == null) return false;
@@ -287,27 +333,58 @@ class ChatProvider extends ChangeNotifier {
     final ssh = chatData['service'] as SSHService?;
     if (ssh == null) return false;
 
+    final mode = (chatData['mode'] ?? "PASSWORD") as String;
+    final host = chatData['host'] ?? "";
+    final user = chatData['username'] ?? "";
+
     try {
       Completer<String> authCompleter = Completer<String>();
-      ssh.connectToWebSocket(
-        host: chatData['host'],
-        username: chatData['username'],
-        password: password,
-        onMessageReceived: (line) {
-          if (line.contains("❌ Authentication failed")) {
+
+      if (mode == "KEY") {
+        ssh.connectToWebSocket(
+          host: host,
+          username: user,
+          password: "", // not used in KEY mode
+          privateKey: password,
+          mode: "KEY",
+          onMessageReceived: (line) {
+            if (line.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (line.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(chatId, line);
+          },
+          onError: (err) {
             authCompleter.complete("FAIL");
-          } else if (line.contains("Interactive Bash session started.")) {
-            authCompleter.complete("SUCCESS");
-          }
-          _handleServerOutput(chatId, line);
-        },
-        onError: (err) {
-          authCompleter.complete("FAIL");
-          addMessage(chatId, "❌ $err", isUser: false);
-          _isConnected = false;
-          notifyListeners();
-        },
-      );
+            addMessage(chatId, "❌ $err", isUser: false);
+            _isConnected = false;
+            notifyListeners();
+          },
+        );
+      } else {
+        ssh.connectToWebSocket(
+          host: host,
+          username: user,
+          password: password,
+          privateKey: "",
+          mode: "PASSWORD",
+          onMessageReceived: (line) {
+            if (line.contains("❌ Authentication failed")) {
+              authCompleter.complete("FAIL");
+            } else if (line.contains("Interactive Bash session started.")) {
+              authCompleter.complete("SUCCESS");
+            }
+            _handleServerOutput(chatId, line);
+          },
+          onError: (err) {
+            authCompleter.complete("FAIL");
+            addMessage(chatId, "❌ $err", isUser: false);
+            _isConnected = false;
+            notifyListeners();
+          },
+        );
+      }
 
       String authResult = await authCompleter.future
           .timeout(const Duration(seconds: 5), onTimeout: () => "TIMEOUT");
@@ -315,8 +392,7 @@ class ChatProvider extends ChangeNotifier {
       if (authResult == "SUCCESS") {
         chatData['connected'] = true;
         _isConnected = true;
-        addMessage(chatId, "✅ Reconnected to ${chatData['host']}",
-            isUser: false);
+        addMessage(chatId, "✅ Reconnected to $host", isUser: false);
         notifyListeners();
         return true;
       } else {
@@ -334,12 +410,10 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Checks if a chat is active
   bool isChatActive(String chatId) {
     return _chats.containsKey(chatId) && (_chats[chatId]?['connected'] == true);
   }
 
-  /// Updates file suggestions for cd commands
   Future<void> updateFileSuggestions(String chatId, {String? query}) async {
     final chatData = _chats[chatId];
     if (chatData == null || chatData['connected'] != true) return;
@@ -365,18 +439,15 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Checks if a command is a streaming command
   bool isStreamingCommand(String command) {
     final streamingCommands = ["journalctl --follow", "tail -f", "htop"];
     return streamingCommands.any((cmd) => command.startsWith(cmd));
   }
 
-  /// Checks if a chat is currently streaming
   bool isStreaming(String chatId) {
     return _chats[chatId]?['isStreaming'] == true;
   }
 
-  /// Starts streaming for a given chat
   void startStreaming(String chatId, String command) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -392,7 +463,6 @@ class ChatProvider extends ChangeNotifier {
     addMessage(chatId, "📡 Streaming started: $command", isUser: false);
   }
 
-  /// Stops streaming for a given chat
   void stopStreaming(String chatId) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -404,7 +474,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Sends a command to a given chat
   Future<String?> sendCommand(String chatId, String command,
       {bool silent = false}) async {
     final chatData = _chats[chatId];
@@ -423,7 +492,6 @@ class ChatProvider extends ChangeNotifier {
     return null;
   }
 
-  /// Adds a message to the given chat
   void addMessage(
     String chatId,
     String message, {
@@ -453,7 +521,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Deletes a single chat
   void deleteChat(String chatId) {
     if (_chats.containsKey(chatId)) {
       final ssh = _chats[chatId]?['service'] as SSHService?;
@@ -464,7 +531,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Deletes all chats
   void deleteAllChats() {
     for (final cid in _chats.keys) {
       final ssh = _chats[cid]?['service'] as SSHService?;
@@ -475,7 +541,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Saves chat history
   Future<void> saveChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final temp = <String, Map<String, dynamic>>{};
@@ -487,12 +552,10 @@ class ChatProvider extends ChangeNotifier {
     await prefs.setString('chat_history', jsonEncode(temp));
   }
 
-  /// Returns the list of saved commands for a chat
   List<String> getSavedCommands(String chatId) {
     return List<String>.from(_chats[chatId]?['customCommands'] ?? []);
   }
 
-  /// Loads chat history
   Future<void> loadChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final storedChats = prefs.getString('chat_history');
@@ -515,7 +578,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Handles SSH server output
   void _handleServerOutput(String chatId, String rawOutput) {
     final chatData = _chats[chatId];
     if (chatData == null) return;
@@ -564,7 +626,6 @@ class ChatProvider extends ChangeNotifier {
     });
   }
 
-  /// Adds a custom command to the chat
   void addSavedCommand(String chatId, String cmd) {
     if (!_chats.containsKey(chatId)) return;
     final list = List<String>.from(_chats[chatId]?['customCommands'] ?? []);
@@ -576,7 +637,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Removes a custom command from the chat
   void removeSavedCommand(String chatId, String cmd) {
     if (!_chats.containsKey(chatId)) return;
     final list = List<String>.from(_chats[chatId]?['customCommands'] ?? []);
@@ -586,7 +646,6 @@ class ChatProvider extends ChangeNotifier {
     saveChatHistory();
   }
 
-  /// Updates the notepad text for a chat
   void updateNotepadText(String chatId, String text) {
     if (!_chats.containsKey(chatId)) return;
     _chats[chatId]!['notepadText'] = text;
