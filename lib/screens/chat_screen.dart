@@ -7,6 +7,7 @@ import '../providers/theme_provider.dart';
 import '../services/ssh_service.dart';
 import '../widgets/notepad.dart';
 import '../utils/secure_storage.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -333,6 +334,203 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<String?> _askForKey(BuildContext context) async {
+    final isDarkMode =
+        Provider.of<ThemeProvider>(context, listen: false).isDarkMode;
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final chatData = chatProvider.getChatById(widget.chatId);
+    final chatName = chatData?['name'] ?? "";
+    final host = chatData?['host'] ?? "";
+    final username = chatData?['username'] ?? "";
+
+    String? selectedKeyPath;
+    bool saveKey = false;
+    String errorMessage = "";
+    final keyTextController = TextEditingController();
+    bool isTypingKey = false;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        bool isLoading = false;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: isDarkMode ? Colors.black : Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              title: Text("SSH Private Key",
+                  style: TextStyle(
+                      fontSize: 16,
+                      color: isDarkMode ? Colors.white : Colors.black)),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (errorMessage.isNotEmpty)
+                      Text(errorMessage,
+                          style: const TextStyle(color: Colors.red)),
+                    const SizedBox(height: 8),
+                    isTypingKey
+                        ? TextField(
+                            controller: keyTextController,
+                            maxLines: 8,
+                            style: TextStyle(
+                                color:
+                                    isDarkMode ? Colors.white : Colors.black),
+                            decoration: InputDecoration(
+                              hintText: "Paste full PEM key here...",
+                              hintStyle: TextStyle(
+                                  color: isDarkMode
+                                      ? Colors.white54
+                                      : Colors.grey[700]),
+                              filled: true,
+                              fillColor: isDarkMode
+                                  ? Colors.grey[900]
+                                  : Colors.grey[200],
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(Icons.upload_file,
+                                    color: isDarkMode
+                                        ? Colors.white54
+                                        : Colors.black54),
+                                onPressed: () =>
+                                    setState(() => isTypingKey = false),
+                              ),
+                            ),
+                          )
+                        : GestureDetector(
+                            onTap: () async {
+                              final result =
+                                  await FilePicker.platform.pickFiles();
+                              if (result != null &&
+                                  result.files.single.path != null) {
+                                setState(() {
+                                  selectedKeyPath = result.files.single.path!;
+                                  errorMessage = "";
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: isDarkMode
+                                        ? Colors.white38
+                                        : Colors.black26),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.upload_file,
+                                      color: isDarkMode
+                                          ? Colors.white
+                                          : Colors.black),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      selectedKeyPath ?? "Select SSH Key File",
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          color: isDarkMode
+                                              ? Colors.white
+                                              : Colors.black),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.edit,
+                                        color: isDarkMode
+                                            ? Colors.white54
+                                            : Colors.black54),
+                                    onPressed: () =>
+                                        setState(() => isTypingKey = true),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: saveKey,
+                          onChanged: (val) =>
+                              setState(() => saveKey = val ?? false),
+                        ),
+                        const Text("Save Key"),
+                      ],
+                    ),
+                    if (isLoading) const CircularProgressIndicator(),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: Text("Cancel",
+                      style: TextStyle(
+                          color: isDarkMode ? Colors.white70 : Colors.black87)),
+                ),
+                TextButton(
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          final typedKey = keyTextController.text.trim();
+
+                          // Validate input
+                          if (!isTypingKey && selectedKeyPath == null) {
+                            setState(() =>
+                                errorMessage = "Please select or paste a key.");
+                            return;
+                          }
+                          if (isTypingKey && typedKey.isEmpty) {
+                            setState(
+                                () => errorMessage = "Key cannot be empty.");
+                            return;
+                          }
+
+                          final keyToUse =
+                              isTypingKey ? typedKey : selectedKeyPath!;
+                          setState(() => isLoading = true);
+
+                          final success = await chatProvider.reconnectAndCheck(
+                            widget.chatId,
+                            keyToUse,
+                          );
+
+                          setState(() => isLoading = false);
+
+                          if (success) {
+                            if (saveKey) {
+                              chatData?['password'] = keyToUse;
+                              chatData?['passwordSaved'] = true;
+                              chatProvider.notifyListeners();
+                              await SecureStorage.savePassword(widget.chatId,
+                                  keyToUse, chatName, host, username);
+                            }
+                            Navigator.of(ctx).pop(keyToUse);
+                          } else {
+                            setState(() =>
+                                errorMessage = "Key rejected or SSH failed.");
+                          }
+                        },
+                  child: Text("Connect",
+                      style: TextStyle(
+                          color: isDarkMode ? Colors.white : Colors.black)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Attempt reconnect if disconnected
   Future<void> _handleReconnect() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -351,10 +549,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (decryptedKey != null && decryptedKey.isNotEmpty) {
         await chatProvider.reconnectChat(widget.chatId, decryptedKey);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("🔐 No SSH key found for this session.")),
-        );
+        await _askForKey(context); // updated dialog
       }
     } else {
       final typedPwd = await _askForPassword(context);
@@ -374,7 +569,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final isConnected = chatProvider.isChatActive(widget.chatId);
 
     return Scaffold(
-      // Let us handle insets with MediaQuery + SafeArea
       resizeToAvoidBottomInset: false,
       backgroundColor: isDarkMode ? const Color(0xFF0D0D0D) : Colors.white,
       appBar: AppBar(
@@ -390,12 +584,13 @@ class _ChatScreenState extends State<ChatScreen> {
               color: isConnected ? Colors.green : Colors.red,
             ),
             onPressed: () async {
-              if (!isConnected) {
-                await _handleReconnect();
-              } else {
+              if (isConnected) {
+                chatProvider.disconnectChat(widget.chatId); // no await
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Already connected")),
+                  const SnackBar(content: Text("🔌 Disconnected from server")),
                 );
+              } else {
+                await _handleReconnect();
               }
             },
           ),
@@ -411,13 +606,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: SafeArea(
-        // This padding ensures everything moves up with the keyboard
         child: Padding(
           padding:
               EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: Column(
             children: [
-              // The main messages area
               Expanded(
                 child: Stack(
                   children: [
@@ -427,7 +620,6 @@ class _ChatScreenState extends State<ChatScreen> {
                           horizontal: 15, vertical: 10),
                       itemCount: messages.length + (_isTyping ? 1 : 0),
                       itemBuilder: (context, index) {
-                        // If user is typing, add the typing indicator
                         if (_isTyping && index == messages.length) {
                           return const _TypingIndicator();
                         }
@@ -451,8 +643,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         );
                       },
                     ),
-
-                    // If user is scrolled up, show a "jump to bottom" button
                     if (!_isAtBottom)
                       Align(
                         alignment: Alignment.bottomRight,
@@ -472,12 +662,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
-
-              // Suggestions row (only visible if we have suggestions)
               if (_showTagPopup && _filteredSuggestions.isNotEmpty)
                 _buildSuggestionRow(),
-
-              // The user’s chat input
               _chatInputBox(),
             ],
           ),

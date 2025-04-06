@@ -86,19 +86,26 @@ class SSHService {
           await EncryptionService.encryptAESCBC(password, encryptionKey);
     } else if (mode == "KEY" || mode == "ADVANCED") {
       try {
-        final pemContent = await File(finalPrivateKey).readAsString();
-        final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
+        String pemContent;
 
+        if (finalPrivateKey.contains("PRIVATE KEY")) {
+          // This is likely a pasted PEM string
+          pemContent = finalPrivateKey;
+          print("📋 Detected pasted PEM key");
+        } else {
+          // This is a path to a key file
+          pemContent = await File(finalPrivateKey).readAsString();
+          print("📁 Loaded PEM key from file path: $finalPrivateKey");
+        }
+
+        final privateKeyBase64 = base64Encode(utf8.encode(pemContent));
         encryptedKey = await EncryptionService.encryptAESCBC(
             privateKeyBase64, encryptionKey);
         print("🧪 Encrypted PEM key (base64+AES-CBC):\n$encryptedKey");
       } catch (e) {
-        onError("Failed to read PEM file: $e");
+        onError("Failed to handle private key: $e");
         return;
       }
-    } else {
-      onError("Unknown mode: $mode");
-      return;
     }
 
     final connectMsg = {

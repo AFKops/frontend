@@ -29,10 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _chatNameController = TextEditingController();
   final TextEditingController _sshCommandController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _manualKeyController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _isConnecting = false;
   bool _savePassword = false;
+  bool _isTypingKey = false;
 
   // Current mode
   LoginMode _loginMode = LoginMode.passwordMode;
@@ -207,8 +209,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ChatProvider chatProvider, String chatName) async {
     String host = _manualHostController.text.trim();
     String user = _manualUserController.text.trim();
+    final isTypingKey = _manualKeyController.text.trim().isNotEmpty;
 
-    if (host.isEmpty || user.isEmpty || _keyFilePath == null) {
+    String? keyValue;
+    if (isTypingKey) {
+      keyValue = _manualKeyController.text.trim();
+    } else if (_keyFilePath != null) {
+      keyValue = _keyFilePath;
+    }
+
+    if (host.isEmpty || user.isEmpty || keyValue == null || keyValue.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text("❌ Host, username, and key are required.")),
@@ -216,14 +226,11 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // We'll store the key path in the 'password' field for now
-    final password = _keyFilePath!;
-
     final chatId = await chatProvider.startNewChat(
       chatName: chatName,
       host: host,
       username: user,
-      password: password,
+      password: keyValue,
       isGeneralChat: false,
       savePassword: _savePassword,
       mode: "KEY",
@@ -238,7 +245,12 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (_savePassword) {
         await SecureStorage.savePassword(
-            chatId, password, chatName, host, user);
+          chatId,
+          keyValue,
+          chatName,
+          host,
+          user,
+        );
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,7 +259,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// SSH Key advanced parse: "ssh -i key.pem user@host"
   /// SSH Key advanced parse: "ssh -i key.pem user@host"
   Future<void> _doKeyParseLogin(
       ChatProvider chatProvider, String chatName) async {
@@ -477,34 +488,70 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildTextField(_manualUserController, "Username (e.g. ubuntu)",
                 false, isDarkMode),
             const SizedBox(height: 10),
-            GestureDetector(
-              onTap: _pickSSHKey,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: isDarkMode ? Colors.white38 : Colors.black26),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.upload_file,
+
+            // File picker or key textarea
+            _isTypingKey
+                ? TextField(
+                    controller: _manualKeyController,
+                    maxLines: 6,
+                    style: TextStyle(
                         color: isDarkMode ? Colors.white : Colors.black),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _keyFilePath == null
-                            ? "Pick SSH Key File"
-                            : _keyFilePath!.split('/').last,
-                        style: TextStyle(
-                            color: isDarkMode ? Colors.white : Colors.black),
+                    decoration: InputDecoration(
+                      hintText: "Paste SSH Private Key here...",
+                      hintStyle: TextStyle(
+                          color:
+                              isDarkMode ? Colors.white54 : Colors.grey[700]),
+                      filled: true,
+                      fillColor:
+                          isDarkMode ? Colors.grey[900] : Colors.grey[200],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => setState(() => _isTypingKey = false),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  )
+                : GestureDetector(
+                    onTap: _pickSSHKey,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDarkMode ? Colors.white38 : Colors.black26,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.upload_file,
+                              color: isDarkMode ? Colors.white : Colors.black),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _keyFilePath == null
+                                  ? "Pick SSH Key File"
+                                  : _keyFilePath!.split('/').last,
+                              style: TextStyle(
+                                  color:
+                                      isDarkMode ? Colors.white : Colors.black),
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.edit,
+                                color: isDarkMode
+                                    ? Colors.white54
+                                    : Colors.black54),
+                            onPressed: () =>
+                                setState(() => _isTypingKey = true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
             const SizedBox(height: 10),
           ],
         );
@@ -655,5 +702,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _chatNameController.dispose();
+    _sshCommandController.dispose();
+    _passwordController.dispose();
+    _manualHostController.dispose();
+    _manualUserController.dispose();
+    _advancedSSHController.dispose();
+    _manualKeyController.dispose(); // 👈 add this line here
+    super.dispose();
   }
 }
