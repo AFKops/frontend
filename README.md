@@ -67,7 +67,7 @@ flutter run
 
 - Flutter SDK (3.10+ recommended)
 - Android device or emulator
-- Backend server running [AFKOps WebSocket backend](https://github.com/chatdevops/backend)
+- Backend server running [AFKOps WebSocket backend](https://github.com/AFKops/ssh_connection)
 
 ---
 
